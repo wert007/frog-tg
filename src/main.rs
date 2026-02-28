@@ -1,14 +1,16 @@
+use std::sync::Arc;
+
+use anyhow::Context;
 use chrono::Local;
 use teloxide::{
-    payloads::{SendPoll, SendPollSetters},
     prelude::*,
     types::{InputPollOption, User},
 };
 
-const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
+use crate::weather::{BotWeatherExt, WeatherStats};
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct WeatherStats {}
+mod weather;
+const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub enum FrogFound {
@@ -24,13 +26,15 @@ pub struct CompleteWalk {
     frogs: Vec<FrogFound>,
 }
 impl CompleteWalk {
-    fn start() -> Self {
-        Self {
+    async fn start() -> anyhow::Result<Self> {
+        Ok(Self {
             start: Local::now(),
             end: None,
-            weather: WeatherStats {},
+            weather: WeatherStats::current()
+                .await
+                .context("Starting a new walk")?,
             frogs: Vec::new(),
-        }
+        })
     }
 }
 
@@ -43,10 +47,15 @@ async fn main() -> anyhow::Result<()> {
 
     Dispatcher::builder(bot, schema)
         .enable_ctrlc_handler()
+        .error_handler(Arc::new(error_handler))
         .build()
         .dispatch()
         .await;
     Ok(())
+}
+
+async fn error_handler<E: std::fmt::Debug + Send + Sync + 'static>(e: E) {
+    eprintln!("[error] {e:?}");
 }
 
 async fn process_text_message(bot: Bot, user: User, message_text: String) -> anyhow::Result<()> {
@@ -83,10 +92,23 @@ async fn handle_active_walk(
 }
 
 async fn start_new_walk(bot: Bot, user: User) -> anyhow::Result<()> {
-    let walk = CompleteWalk::start();
+    let walk = CompleteWalk::start()
+        .await
+        .context("Creating walk for new walk created by user")?;
     let path = format!("walks/{}.json", walk.start.format("%Y-%m-%d"));
-    serde_json::to_writer(std::fs::File::create(path)?, &walk)?;
+    serde_json::to_writer(
+        std::fs::File::create(path).context("Creating file for new walk")?,
+        &walk,
+    )
+    .context("Writing new walk to freshly created walk")?;
+    bot.send_weather_stats(user.id, walk.weather)
+        .await
+        .context("Sending the weather via tg to user")?;
     // Send weather stats, once we have those!
-    bot.send_poll(user.id, "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.", ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new)).await?;
+    bot.send_poll(user.id,
+        "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
+        ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
+        .await
+        .context("Sending possible next steps via tg poll to user")?;
     Ok(())
 }
