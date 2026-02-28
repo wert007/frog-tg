@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use chrono::Local;
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
@@ -14,10 +14,45 @@ mod weather;
 const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
 type DialogueState = Dialogue<State, InMemStorage<State>>;
 
+trait PollExt {
+    fn selected(&self) -> &str;
+    fn selected_index(&self) -> isize;
+}
+
+impl PollExt for Poll {
+    fn selected(&self) -> &str {
+        self.options
+            .iter()
+            .filter(|o| o.voter_count > 0)
+            .map(|o| o.text.as_str())
+            .next()
+            .unwrap_or_default()
+    }
+
+    fn selected_index(&self) -> isize {
+        self.options
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.voter_count > 0)
+            .map(|(i, _)| i as isize)
+            .next()
+            .unwrap_or(-1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub enum Sex {
+    Male,
+    Female,
+    Unknown,
+}
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub enum FrogFound {
-    Partial,
-    Complete,
+pub struct FrogFound {
+    name: String,
+    sex: Sex,
+    location: usize,
+    towards: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -46,61 +81,186 @@ pub enum State {
     Start,
     WalkStarted {
         walk: CompleteWalk,
-        id: ChatId,
+    },
+    FrogIdentified {
+        name: String,
+        walk: CompleteWalk,
+    },
+    FrogIdentifiedSex {
+        name: String,
+        walk: CompleteWalk,
+        sex: Sex,
+    },
+    FrogIdentifiedSexLocation {
+        name: String,
+        walk: CompleteWalk,
+        sex: Sex,
+        location: usize,
     },
     End,
 }
 
 impl State {
-    async fn start(bot: Bot, dialoge: DialogueState, msg: Message) -> anyhow::Result<()> {
+    async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
         let walk = CompleteWalk::start()
             .await
             .context("Creating walk for new walk created by user")?;
-        bot.send_weather_stats(msg.chat.id, walk.weather)
+        bot.send_weather_stats(dialoge.chat_id(), walk.weather)
             .await
             .context("Sending the weather via tg to user")?;
-        dialoge
-            .update(State::WalkStarted {
-                walk,
-                id: msg.chat.id,
-            })
-            .await?;
-        bot.send_poll(msg.chat.id,
-        "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
-        ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
-        .await
-        .context("Sending possible next steps via tg poll to user")?;
+        dialoge.update(State::WalkStarted { walk }).await?;
+        found_something(bot, dialoge).await?;
         Ok(())
     }
 
     async fn poll_answer_walk_started(
         bot: Bot,
-        (mut walk, id): (CompleteWalk, ChatId),
+        walk: CompleteWalk,
         dialoge: DialogueState,
+        poll: Poll,
     ) -> anyhow::Result<()> {
-        let date = Local::now();
-        let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
-
-        walk.end = Some(date);
-        _ = walk.weather.ending().await;
-
-        serde_json::to_writer(
-            std::fs::File::create(path).context("Recreating file for current walk")?,
-            &walk,
-        )
-        .context("Writing new walk to freshly created walk")?;
-
-        bot.send_message(
-            id,
-            format!(
-                "You finished your walk. You've been at it for {}.",
-                (date - walk.start)
-            ),
-        )
-        .await?;
-        dialoge.update(State::Start).await?;
+        match poll.selected() {
+            "End" => {
+                end_walk(bot, walk, dialoge).await?;
+            }
+            name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
+                dialoge
+                    .update(State::FrogIdentified {
+                        name: name.into(),
+                        walk,
+                    })
+                    .await?;
+                ask_sex(bot, name, dialoge.chat_id()).await?;
+            }
+            _ => bail!("TODO"),
+        }
         Ok(())
     }
+
+    async fn frog_identified(
+        bot: Bot,
+        (name, walk): (String, CompleteWalk),
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        let sex = match poll.selected() {
+            "Male" => Sex::Male,
+            "Female" => Sex::Female,
+            "Unknown" => Sex::Unknown,
+            "Use Questionaire" => bail!("TODO"),
+            _ => unreachable!(),
+        };
+        dialoge
+            .update(State::FrogIdentifiedSex { name, walk, sex })
+            .await?;
+        let locations: Vec<InputPollOption> = include_str!("../locations.txt")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(InputPollOption::new)
+            .collect();
+        // TODO: This is probably only changing slowly and not all the time. Can
+        // we easily remember the last choice?
+        bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
+            .await?;
+        Ok(())
+    }
+    async fn frog_identified_sex(
+        bot: Bot,
+        (name, walk, sex): (String, CompleteWalk, Sex),
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        let location = poll.selected_index();
+        if location < 0 {
+            bail!("We do not really handle you unselecting something. sorry.");
+        }
+        let location = location as usize;
+        dialoge
+            .update(State::FrogIdentifiedSexLocation {
+                name,
+                walk,
+                sex,
+                location,
+            })
+            .await?;
+        bot.send_poll(
+            dialoge.chat_id(),
+            "Is the frog going towards water or away from it?",
+            ["Towards water", "Back from water"].map(InputPollOption::new),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn frog_identified_sex_location(
+        bot: Bot,
+        (name, mut walk, sex, location): (String, CompleteWalk, Sex, usize),
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        let towards = poll.selected_index() == 0;
+        if poll.selected_index() < 0 {
+            bail!("We do not really handle you unselecting something. sorry.");
+        }
+        let frog = FrogFound {
+            name,
+            sex,
+            location,
+            towards,
+        };
+        walk.frogs.push(frog);
+        dialoge.update(State::WalkStarted { walk }).await?;
+        found_something(bot, dialoge).await?;
+        Ok(())
+    }
+}
+
+async fn found_something(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(dialoge.chat_id(),
+    "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
+    ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
+    .await
+    .context("Sending possible next steps via tg poll to user")?;
+    Ok(())
+}
+
+async fn ask_sex(bot: Bot, name: &str, chat_id: ChatId) -> anyhow::Result<()> {
+    bot.send_poll(
+        chat_id,
+        format!("Enter the sex of your {name} now:"),
+        ["Male", "Female", "Unknown", "Use Questionaire"].map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn end_walk(
+    bot: Bot,
+    mut walk: CompleteWalk,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    let date = Local::now();
+    let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
+    walk.end = Some(date);
+    _ = walk.weather.ending().await;
+    serde_json::to_writer(
+        std::fs::File::create(path).context("Recreating file for current walk")?,
+        &walk,
+    )
+    .context("Writing new walk to freshly created walk")?;
+    bot.send_message(
+        dialoge.chat_id(),
+        format!(
+            "You finished your walk. You've been at it for {}.",
+            (date - walk.start)
+        ),
+    )
+    .await?;
+    dialoge.update(State::Start).await?;
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -129,16 +289,28 @@ async fn main() -> anyhow::Result<()> {
                 .branch(dptree::case![State::Start].endpoint(State::start)),
         )
         .branch(
-            Update::filter_poll().branch(
-                dptree::case![State::WalkStarted { walk, id }]
-                    .filter(|p: Poll| {
-                        p.options
-                            .iter()
-                            .find(|o| o.text == "End")
-                            .is_some_and(|o| o.voter_count > 0)
-                    })
-                    .endpoint(State::poll_answer_walk_started),
-            ),
+            Update::filter_poll()
+                .branch(
+                    dptree::case![State::WalkStarted { walk }]
+                        .endpoint(State::poll_answer_walk_started),
+                )
+                .branch(
+                    dptree::case![State::FrogIdentified { name, walk }]
+                        .endpoint(State::frog_identified),
+                )
+                .branch(
+                    dptree::case![State::FrogIdentifiedSex { name, walk, sex }]
+                        .endpoint(State::frog_identified_sex),
+                )
+                .branch(
+                    dptree::case![State::FrogIdentifiedSexLocation {
+                        name,
+                        walk,
+                        sex,
+                        location
+                    }]
+                    .endpoint(State::frog_identified_sex_location),
+                ),
         );
 
     Dispatcher::builder(bot, schema)
