@@ -155,7 +155,7 @@ impl Cloudiness {
             20.0..40.0 => Self::FewClouds,
             40.0..60.0 => Self::Clouds,
             60.0..80.0 => Self::ManyClouds,
-            80.0..100.0 => Self::AllClouds,
+            80.0..=100.0 => Self::AllClouds,
             err => Self::Error(err),
         }
     }
