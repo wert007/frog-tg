@@ -101,13 +101,13 @@ impl std::fmt::Display for Percipation {
 impl Percipation {
     fn from_omr(omr: OpenMeteoResponse) -> Self {
         match omr.weather_code {
-            0 => Percipation::None,
-            51 | 53 | 55 | 56 | 57 => Percipation::Drizzle,
-            61 | 63 | 66 => Percipation::ModerateRain,
+            0..=9 => Percipation::None,
+            20 | 24 | 50..=59 => Percipation::Drizzle,
+            21 | 61 | 63 | 66 => Percipation::ModerateRain,
             65 | 67 => Percipation::StrongRain,
-            71 | 73 | 75 => Percipation::Snow,
-            45 => Percipation::Fog,
+            22 | 71 | 73 | 75 => Percipation::Snow,
             23 | 77 => Percipation::Graupel,
+            10 | 28 | 42..=49 => Percipation::Fog,
             _ => Percipation::Unknown,
         }
     }
