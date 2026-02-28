@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use chrono::Local;
 use teloxide::{
+    payloads::AnswerInlineQuery,
     prelude::*,
-    types::{InputPollOption, User},
+    types::{InputPollOption, Me, User},
 };
 
 use crate::weather::{BotWeatherExt, WeatherStats};
@@ -41,9 +42,13 @@ impl CompleteWalk {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(TOKEN);
-    let schema = Update::filter_message()
-        .filter_map(|u: Update| u.from().cloned())
-        .branch(Message::filter_text().endpoint(process_text_message));
+    let schema = dptree::entry()
+        .branch(
+            Update::filter_message()
+                .filter_map(|u: Update| u.from().cloned())
+                .chain(Message::filter_text().endpoint(process_text_message)),
+        )
+        .branch(Update::filter_poll().endpoint(process_poll_answer));
 
     Dispatcher::builder(bot, schema)
         .enable_ctrlc_handler()
@@ -56,6 +61,21 @@ async fn main() -> anyhow::Result<()> {
 
 async fn error_handler<E: std::fmt::Debug + Send + Sync + 'static>(e: E) {
     eprintln!("[error] {e:?}");
+}
+
+async fn process_poll_answer(bot: Bot, me: Me, answer: Poll) -> anyhow::Result<()> {
+    let Some(o) = answer.options.iter().find(|o| o.text == "End") else {
+        bail!("Currently only one poll type can be handled");
+    };
+    if o.voter_count == 0 {
+        // We do not care for now!
+        return Ok(());
+    }
+    // me.
+    end_walk(bot, me.user)
+        .await
+        .context("User voted to end current walk")?;
+    Ok(())
 }
 
 async fn process_text_message(bot: Bot, user: User, message_text: String) -> anyhow::Result<()> {
@@ -88,6 +108,34 @@ async fn handle_active_walk(
     message_text: String,
     current_walk: &mut CompleteWalk,
 ) -> Result<(), anyhow::Error> {
+    Ok(())
+}
+
+async fn end_walk(bot: Bot, user: User) -> anyhow::Result<()> {
+    let date = Local::now();
+    let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
+    let mut walk: CompleteWalk =
+        serde_json::from_reader(std::fs::File::open(&path).context("Reading current walk")?)
+            .context("Reading current walk and parsing")?;
+    walk.end = Some(date);
+    _ = walk.weather.ending().await;
+
+    serde_json::to_writer(
+        std::fs::File::create(path).context("Recreating file for current walk")?,
+        &walk,
+    )
+    .context("Writing new walk to freshly created walk")?;
+
+    if !user.is_bot {
+        bot.send_message(
+            user.id,
+            format!(
+                "You finished your walk. You've been at it for {}.",
+                (date - walk.start)
+            ),
+        )
+        .await?;
+    }
     Ok(())
 }
 

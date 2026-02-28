@@ -211,4 +211,9 @@ impl WeatherStats {
             wmo_code: omr.weather_code,
         })
     }
+
+    pub(crate) async fn ending(&mut self) -> anyhow::Result<()> {
+        // TODO: Get temperature at end of walk!
+        Ok(())
+    }
 }
