@@ -1,17 +1,18 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use chrono::Local;
 use teloxide::{
-    payloads::AnswerInlineQuery,
+    dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
-    types::{InputPollOption, Me, User},
+    types::InputPollOption,
 };
 
 use crate::weather::{BotWeatherExt, WeatherStats};
 
 mod weather;
 const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
+type DialogueState = Dialogue<State, InMemStorage<State>>;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub enum FrogFound {
@@ -39,20 +40,114 @@ impl CompleteWalk {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub enum State {
+    #[default]
+    Start,
+    WalkStarted {
+        walk: CompleteWalk,
+        id: ChatId,
+    },
+    End,
+}
+
+impl State {
+    async fn start(bot: Bot, dialoge: DialogueState, msg: Message) -> anyhow::Result<()> {
+        let walk = CompleteWalk::start()
+            .await
+            .context("Creating walk for new walk created by user")?;
+        bot.send_weather_stats(msg.chat.id, walk.weather)
+            .await
+            .context("Sending the weather via tg to user")?;
+        dialoge
+            .update(State::WalkStarted {
+                walk,
+                id: msg.chat.id,
+            })
+            .await?;
+        bot.send_poll(msg.chat.id,
+        "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
+        ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
+        .await
+        .context("Sending possible next steps via tg poll to user")?;
+        Ok(())
+    }
+
+    async fn poll_answer_walk_started(
+        bot: Bot,
+        (mut walk, id): (CompleteWalk, ChatId),
+        dialoge: DialogueState,
+    ) -> anyhow::Result<()> {
+        let date = Local::now();
+        let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
+
+        walk.end = Some(date);
+        _ = walk.weather.ending().await;
+
+        serde_json::to_writer(
+            std::fs::File::create(path).context("Recreating file for current walk")?,
+            &walk,
+        )
+        .context("Writing new walk to freshly created walk")?;
+
+        bot.send_message(
+            id,
+            format!(
+                "You finished your walk. You've been at it for {}.",
+                (date - walk.start)
+            ),
+        )
+        .await?;
+        dialoge.update(State::Start).await?;
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+#[allow(unused)]
+struct UpdateWithSuppliedChatId(Update, ChatId);
+
+impl GetChatId for UpdateWithSuppliedChatId {
+    fn chat_id(&self) -> Option<ChatId> {
+        Some(self.1)
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(TOKEN);
     let schema = dptree::entry()
+        .map(|u: Update, m: Arc<Mutex<ChatId>>| {
+            let i = u.chat().map(|c| c.id).unwrap_or(*m.lock().unwrap());
+            *m.lock().unwrap() = i;
+            UpdateWithSuppliedChatId(u, i)
+        })
+        .enter_dialogue::<UpdateWithSuppliedChatId, InMemStorage<State>, State>()
         .branch(
             Update::filter_message()
                 .filter_map(|u: Update| u.from().cloned())
-                .chain(Message::filter_text().endpoint(process_text_message)),
+                .branch(dptree::case![State::Start].endpoint(State::start)),
         )
-        .branch(Update::filter_poll().endpoint(process_poll_answer));
+        .branch(
+            Update::filter_poll().branch(
+                dptree::case![State::WalkStarted { walk, id }]
+                    .filter(|p: Poll| {
+                        p.options
+                            .iter()
+                            .find(|o| o.text == "End")
+                            .is_some_and(|o| o.voter_count > 0)
+                    })
+                    .endpoint(State::poll_answer_walk_started),
+            ),
+        );
 
     Dispatcher::builder(bot, schema)
         .enable_ctrlc_handler()
         .error_handler(Arc::new(error_handler))
+        .dependencies(dptree::deps![
+            InMemStorage::<State>::new(),
+            Arc::new(Mutex::<ChatId>::new(ChatId(0)))
+        ])
         .build()
         .dispatch()
         .await;
@@ -61,102 +156,4 @@ async fn main() -> anyhow::Result<()> {
 
 async fn error_handler<E: std::fmt::Debug + Send + Sync + 'static>(e: E) {
     eprintln!("[error] {e:?}");
-}
-
-async fn process_poll_answer(bot: Bot, me: Me, answer: Poll) -> anyhow::Result<()> {
-    let Some(o) = answer.options.iter().find(|o| o.text == "End") else {
-        bail!("Currently only one poll type can be handled");
-    };
-    if o.voter_count == 0 {
-        // We do not care for now!
-        return Ok(());
-    }
-    // me.
-    end_walk(bot, me.user)
-        .await
-        .context("User voted to end current walk")?;
-    Ok(())
-}
-
-async fn process_text_message(bot: Bot, user: User, message_text: String) -> anyhow::Result<()> {
-    if message_text.starts_with("/start") {
-        start_new_walk(bot, user).await
-    } else {
-        let date = chrono::Local::now();
-        let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
-        let file_content = match std::fs::read_to_string(&path) {
-            Ok(it) => it,
-            Err(err) => {
-                bot.send_message(user.id, format!("If you want to start a new walk type /start. Otherwise something went wrong and I have more details here: ```\nCould not open file {path}.\n\nError: {err}```")).await?;
-                return Ok(());
-            }
-        };
-        let mut current_walk: CompleteWalk = match serde_json::from_str(&file_content) {
-            Ok(it) => it,
-            Err(err) => {
-                bot.send_message(user.id, format!("Oops. There are some errors in your current walk. Something went wrong on my end. Here are more details: ```\nError: {err}```")).await?;
-                return Ok(());
-            }
-        };
-        handle_active_walk(bot, user, message_text, &mut current_walk).await
-    }
-}
-
-async fn handle_active_walk(
-    bot: Bot,
-    user: User,
-    message_text: String,
-    current_walk: &mut CompleteWalk,
-) -> Result<(), anyhow::Error> {
-    Ok(())
-}
-
-async fn end_walk(bot: Bot, user: User) -> anyhow::Result<()> {
-    let date = Local::now();
-    let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
-    let mut walk: CompleteWalk =
-        serde_json::from_reader(std::fs::File::open(&path).context("Reading current walk")?)
-            .context("Reading current walk and parsing")?;
-    walk.end = Some(date);
-    _ = walk.weather.ending().await;
-
-    serde_json::to_writer(
-        std::fs::File::create(path).context("Recreating file for current walk")?,
-        &walk,
-    )
-    .context("Writing new walk to freshly created walk")?;
-
-    if !user.is_bot {
-        bot.send_message(
-            user.id,
-            format!(
-                "You finished your walk. You've been at it for {}.",
-                (date - walk.start)
-            ),
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn start_new_walk(bot: Bot, user: User) -> anyhow::Result<()> {
-    let walk = CompleteWalk::start()
-        .await
-        .context("Creating walk for new walk created by user")?;
-    let path = format!("walks/{}.json", walk.start.format("%Y-%m-%d"));
-    serde_json::to_writer(
-        std::fs::File::create(path).context("Creating file for new walk")?,
-        &walk,
-    )
-    .context("Writing new walk to freshly created walk")?;
-    bot.send_weather_stats(user.id, walk.weather)
-        .await
-        .context("Sending the weather via tg to user")?;
-    // Send weather stats, once we have those!
-    bot.send_poll(user.id,
-        "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
-        ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
-        .await
-        .context("Sending possible next steps via tg poll to user")?;
-    Ok(())
 }
