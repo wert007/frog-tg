@@ -8,8 +8,12 @@ use teloxide::{
     types::InputPollOption,
 };
 
-use crate::weather::{BotWeatherExt, WeatherStats};
+use crate::{
+    questionaire::QuestionaireFrogName,
+    weather::{BotWeatherExt, WeatherStats},
+};
 
+mod questionaire;
 mod weather;
 const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
 type DialogueState = Dialogue<State, InMemStorage<State>>;
@@ -82,6 +86,10 @@ pub enum State {
     WalkStarted {
         walk: CompleteWalk,
     },
+    QuestionaireFrogName {
+        walk: CompleteWalk,
+        questionaire: questionaire::QuestionaireFrogName,
+    },
     FrogIdentified {
         name: String,
         walk: CompleteWalk,
@@ -131,6 +139,15 @@ impl State {
                     })
                     .await?;
                 ask_sex(bot, name, dialoge.chat_id()).await?;
+            }
+            "Found Something" => {
+                dialoge
+                    .update(State::QuestionaireFrogName {
+                        walk,
+                        questionaire: QuestionaireFrogName::default(),
+                    })
+                    .await?;
+                questionaire::start(bot, dialoge).await?;
             }
             _ => bail!("TODO"),
         }
@@ -293,6 +310,16 @@ async fn main() -> anyhow::Result<()> {
                 .branch(
                     dptree::case![State::WalkStarted { walk }]
                         .endpoint(State::poll_answer_walk_started),
+                )
+                .branch(
+                    dptree::case![State::QuestionaireFrogName { walk, questionaire }]
+                        .filter(|(_, q): (CompleteWalk, QuestionaireFrogName)| q.species.is_none())
+                        .endpoint(questionaire::found_species),
+                )
+                .branch(
+                    dptree::case![State::QuestionaireFrogName { walk, questionaire }]
+                        .filter(|(_, q): (CompleteWalk, QuestionaireFrogName)| q.species.is_some())
+                        .endpoint(questionaire::found_frog_name),
                 )
                 .branch(
                     dptree::case![State::FrogIdentified { name, walk }]
