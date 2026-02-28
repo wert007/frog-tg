@@ -1,14 +1,13 @@
 use chrono::Local;
 use teloxide::{
-    payloads::{SendPoll, SendPollSetters},
     prelude::*,
     types::{InputPollOption, User},
 };
 
-const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
+use crate::weather::WeatherStats;
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct WeatherStats {}
+mod weather;
+const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub enum FrogFound {
@@ -24,13 +23,13 @@ pub struct CompleteWalk {
     frogs: Vec<FrogFound>,
 }
 impl CompleteWalk {
-    fn start() -> Self {
-        Self {
+    async fn start() -> anyhow::Result<Self> {
+        Ok(Self {
             start: Local::now(),
             end: None,
-            weather: WeatherStats {},
+            weather: WeatherStats::current().await?,
             frogs: Vec::new(),
-        }
+        })
     }
 }
 
@@ -83,7 +82,7 @@ async fn handle_active_walk(
 }
 
 async fn start_new_walk(bot: Bot, user: User) -> anyhow::Result<()> {
-    let walk = CompleteWalk::start();
+    let walk = CompleteWalk::start().await?;
     let path = format!("walks/{}.json", walk.start.format("%Y-%m-%d"));
     serde_json::to_writer(std::fs::File::create(path)?, &walk)?;
     // Send weather stats, once we have those!
