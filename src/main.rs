@@ -66,6 +66,7 @@ pub struct DeadFrog {
     name: Option<String>,
     sex: Option<Sex>,
     location: usize,
+    time: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -227,6 +228,7 @@ impl State {
             name,
             sex: None,
             location,
+            time: Local::now(),
         });
         dialoge.update(State::WalkStarted { walk }).await?;
         found_something(bot, dialoge).await?;
