@@ -170,6 +170,7 @@ pub struct WeatherStats {
     ground_humidity: Option<GroundHumidity>,
     cloudiness: Cloudiness,
     wmo_code: u8,
+    raw: OpenMeteoResponse,
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -209,6 +210,7 @@ impl WeatherStats {
             ground_humidity: None,
             cloudiness,
             wmo_code: omr.weather_code,
+            raw: omr,
         })
     }
 
