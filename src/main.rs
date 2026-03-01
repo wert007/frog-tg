@@ -271,7 +271,7 @@ async fn end_walk(
     bot.send_message(
         dialoge.chat_id(),
         format!(
-            "You finished your walk. You've been at it for {}.",
+            "You finished your walk. You've been at it for {}.\n\nWhenever you want to /start a new walk, I'm ready.",
             (date - walk.start)
         ),
     )
