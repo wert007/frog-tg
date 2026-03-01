@@ -60,11 +60,19 @@ pub struct FrogFound {
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct DeadFrog {
+    name: Option<String>,
+    sex: Option<Sex>,
+    location: usize,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct CompleteWalk {
     start: chrono::DateTime<Local>,
     end: Option<chrono::DateTime<Local>>,
     weather: WeatherStats,
     frogs: Vec<FrogFound>,
+    dead_frogs: Vec<DeadFrog>,
 }
 impl CompleteWalk {
     async fn start() -> anyhow::Result<Self> {
@@ -75,6 +83,7 @@ impl CompleteWalk {
                 .await
                 .context("Starting a new walk")?,
             frogs: Vec::new(),
+            dead_frogs: Vec::new(),
         })
     }
 }
@@ -89,6 +98,13 @@ pub enum State {
     QuestionaireFrogName {
         walk: CompleteWalk,
         questionaire: questionaire::QuestionaireFrogName,
+    },
+    DeadFrog {
+        walk: CompleteWalk,
+    },
+    DeadFrogName {
+        walk: CompleteWalk,
+        name: Option<String>,
     },
     FrogIdentified {
         name: String,
@@ -149,8 +165,69 @@ impl State {
                     .await?;
                 questionaire::start(bot, dialoge).await?;
             }
+            "Dead Frog :(" => {
+                bot.send_poll(
+                    dialoge.chat_id(),
+                    "Can you still recognize what it was?",
+                    [
+                        "No",
+                        "Erdkröte",
+                        "Grasfrosch",
+                        "Teichmolch",
+                        "Bergmolch",
+                        "Kammmolch",
+                    ]
+                    .map(InputPollOption::new),
+                )
+                .await?;
+                dialoge.update(State::DeadFrog { walk }).await?;
+            }
             _ => bail!("TODO"),
         }
+        Ok(())
+    }
+
+    async fn dead_frog_answered(
+        bot: Bot,
+        walk: CompleteWalk,
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        let name = match poll.selected() {
+            "No" => None,
+            name => Some(name.to_string()),
+        };
+        dialoge.update(State::DeadFrogName { walk, name }).await?;
+        let locations: Vec<InputPollOption> = include_str!("../locations.txt")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(InputPollOption::new)
+            .collect();
+        // TODO: This is probably only changing slowly and not all the time. Can
+        // we easily remember the last choice?
+        bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
+            .await?;
+        Ok(())
+    }
+
+    async fn dead_frog_location_answered(
+        bot: Bot,
+        (mut walk, name): (CompleteWalk, Option<String>),
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        let location = poll.selected_index();
+        if location < 0 {
+            bail!("We do not really handle you unselecting something. sorry.");
+        }
+        let location = location as usize;
+        walk.dead_frogs.push(DeadFrog {
+            name,
+            sex: None,
+            location,
+        });
+        dialoge.update(State::WalkStarted { walk }).await?;
+        found_something(bot, dialoge).await?;
         Ok(())
     }
 
@@ -238,7 +315,7 @@ async fn found_something(
 ) -> Result<(), anyhow::Error> {
     bot.send_poll(dialoge.chat_id(),
     "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
-    ["Found Something", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
+    ["Found Something", "Dead Frog :(", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
     .await
     .context("Sending possible next steps via tg poll to user")?;
     Ok(())
@@ -312,6 +389,11 @@ async fn main() -> anyhow::Result<()> {
                 .branch(
                     dptree::case![State::WalkStarted { walk }]
                         .endpoint(State::poll_answer_walk_started),
+                )
+                .branch(dptree::case![State::DeadFrog { walk }].endpoint(State::dead_frog_answered))
+                .branch(
+                    dptree::case![State::DeadFrogName { walk, name }]
+                        .endpoint(State::dead_frog_location_answered),
                 )
                 .branch(
                     dptree::case![State::QuestionaireFrogName { walk, questionaire }]
