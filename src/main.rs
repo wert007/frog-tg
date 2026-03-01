@@ -347,11 +347,13 @@ async fn end_walk(
         &walk,
     )
     .context("Writing new walk to freshly created walk")?;
+    let duration = date - walk.start;
     bot.send_message(
         dialoge.chat_id(),
         format!(
-            "You finished your walk. You've been at it for {}.\n\nWhenever you want to /start a new walk, I'm ready.",
-            (date - walk.start)
+            "You finished your walk. You've been at it for {}:{:02} h.\n\nWhenever you want to /start a new walk, I'm ready.",
+            duration.num_hours(),
+            duration.num_minutes(),
         ),
     )
     .await?;
