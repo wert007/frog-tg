@@ -260,11 +260,13 @@ async fn end_walk(
     dialoge: Dialogue<State, InMemStorage<State>>,
 ) -> Result<(), anyhow::Error> {
     let date = Local::now();
-    let path = format!("walks/{}.json", date.format("%Y-%m-%d"));
+    let existing = glob::glob(&format!("walks/{}*.json", date.format("%Y-%m-%d")))?;
+    let index = existing.count();
+    let path = format!("walks/{}({}).json", date.format("%Y-%m-%d"), index + 1);
     walk.end = Some(date);
     _ = walk.weather.ending().await;
     serde_json::to_writer(
-        std::fs::File::create(path).context("Recreating file for current walk")?,
+        std::fs::File::create_new(path).context("Recreating file for current walk")?,
         &walk,
     )
     .context("Writing new walk to freshly created walk")?;
