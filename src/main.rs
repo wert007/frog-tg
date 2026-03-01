@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, bail};
-use chrono::Local;
+use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
@@ -15,6 +15,7 @@ use crate::{
 
 mod questionaire;
 mod weather;
+
 const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
 type DialogueState = Dialogue<State, InMemStorage<State>>;
 
@@ -57,6 +58,7 @@ pub struct FrogFound {
     sex: Sex,
     location: usize,
     towards: bool,
+    time: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -301,6 +303,7 @@ impl State {
             sex,
             location,
             towards,
+            time: Local::now(),
         };
         walk.frogs.push(frog);
         dialoge.update(State::WalkStarted { walk }).await?;
