@@ -1,4 +1,8 @@
 use anyhow::{Context, bail};
+use teloxide::{
+    payloads::{SendMessage, SendMessageSetters},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+};
 
 pub trait BotWeatherExt: teloxide::prelude::Requester {
     async fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
@@ -14,6 +18,7 @@ impl BotWeatherExt for teloxide::Bot {
         chat_id: C,
         weather: WeatherStats,
     ) -> Result<(), Self::Err> {
+        use teloxide::types::InlineKeyboardButtonKind::CallbackData;
         let text = format!(
             "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nCloudiness: {}",
             weather.temperature_start,
@@ -22,7 +27,19 @@ impl BotWeatherExt for teloxide::Bot {
             weather.wmo_code,
             weather.cloudiness
         );
-        teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
+        let m = SendMessage::new(chat_id, text);
+
+        let k = InlineKeyboardMarkup::new([[
+            InlineKeyboardButton::new("Wind 0", CallbackData("weather:wind-0".into())),
+            InlineKeyboardButton::new("Wind ➖", CallbackData("weather:wind-minus".into())),
+            InlineKeyboardButton::new("Wind ➕", CallbackData("weather:wind-plus".into())),
+            InlineKeyboardButton::new("Wind 7", CallbackData("weather:wind-6".into())),
+        ]]);
+        let m = m.reply_markup(k);
+        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
+
+        // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
+        // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
         Ok(())
     }
 }
@@ -30,7 +47,7 @@ impl BotWeatherExt for teloxide::Bot {
 const OPENMETEO_URL: &'static str = include_str!("../openmeteo-url.txt").trim_ascii();
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Beaufort {
+pub enum Beaufort {
     Zero,
     One,
     Two,
@@ -69,10 +86,36 @@ impl Beaufort {
             _ => Beaufort::Higher,
         }
     }
+
+    pub(crate) fn decrease(&self) -> Beaufort {
+        match self {
+            Beaufort::Zero => Beaufort::Zero,
+            Beaufort::One => Beaufort::Zero,
+            Beaufort::Two => Beaufort::One,
+            Beaufort::Three => Beaufort::Two,
+            Beaufort::Four => Beaufort::Three,
+            Beaufort::Five => Beaufort::Four,
+            Beaufort::Six => Beaufort::Five,
+            Beaufort::Higher => Beaufort::Six,
+        }
+    }
+
+    pub(crate) fn increase(&self) -> Beaufort {
+        match self {
+            Beaufort::Zero => Beaufort::One,
+            Beaufort::One => Beaufort::Two,
+            Beaufort::Two => Beaufort::Three,
+            Beaufort::Three => Beaufort::Four,
+            Beaufort::Four => Beaufort::Five,
+            Beaufort::Five => Beaufort::Six,
+            Beaufort::Six => Beaufort::Higher,
+            Beaufort::Higher => Beaufort::Higher,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Percipation {
+pub enum Percipation {
     None,
     StrongRain,
     ModerateRain,
@@ -114,7 +157,7 @@ impl Percipation {
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum GroundHumidity {
+pub enum GroundHumidity {
     Wet,
     Humid,
     Dry,
@@ -122,7 +165,7 @@ enum GroundHumidity {
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Cloudiness {
+pub enum Cloudiness {
     AllClouds,
     ManyClouds,
     Clouds,
@@ -163,12 +206,12 @@ impl Cloudiness {
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub struct WeatherStats {
-    temperature_start: f64,
-    temperature_end: Option<f64>,
-    wind_beaufort: Beaufort,
-    percipation: Percipation,
-    ground_humidity: Option<GroundHumidity>,
-    cloudiness: Cloudiness,
+    pub temperature_start: f64,
+    pub temperature_end: Option<f64>,
+    pub wind_beaufort: Beaufort,
+    pub percipation: Percipation,
+    pub ground_humidity: Option<GroundHumidity>,
+    pub cloudiness: Cloudiness,
     wmo_code: u8,
     raw: OpenMeteoResponse,
 }

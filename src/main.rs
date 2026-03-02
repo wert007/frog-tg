@@ -124,10 +124,35 @@ pub enum State {
         sex: Sex,
         location: usize,
     },
-    End,
 }
 
 impl State {
+    fn as_walk(&self) -> Option<CompleteWalk> {
+        match self {
+            State::Start => None,
+            State::WalkStarted { walk } => Some(walk.clone()),
+            State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
+            State::DeadFrog { walk } => Some(walk.clone()),
+            State::DeadFrogName { walk, .. } => Some(walk.clone()),
+            State::FrogIdentified { walk, .. } => Some(walk.clone()),
+            State::FrogIdentifiedSex { walk, .. } => Some(walk.clone()),
+            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk.clone()),
+        }
+    }
+
+    fn as_walk_mut(&mut self) -> Option<&mut CompleteWalk> {
+        match self {
+            State::Start => None,
+            State::WalkStarted { walk } => Some(walk),
+            State::QuestionaireFrogName { walk, .. } => Some(walk),
+            State::DeadFrog { walk } => Some(walk),
+            State::DeadFrogName { walk, .. } => Some(walk),
+            State::FrogIdentified { walk, .. } => Some(walk),
+            State::FrogIdentifiedSex { walk, .. } => Some(walk),
+            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk),
+        }
+    }
+
     async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
         let walk = CompleteWalk::start()
             .await
@@ -326,6 +351,35 @@ async fn found_something(
     Ok(())
 }
 
+async fn weather_change_requested(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    cb: CallbackQuery,
+) -> anyhow::Result<()> {
+    let mut state = dialoge.get_or_default().await?;
+    let weather = &mut state.as_walk_mut().unwrap().weather;
+    match cb.data.as_ref().map(|s| s.as_str()) {
+        Some("weather:wind-0") => {
+            weather.wind_beaufort = weather::Beaufort::Zero;
+        }
+        Some("weather:wind-minus") => {
+            weather.wind_beaufort = weather.wind_beaufort.decrease();
+        }
+        Some("weather:wind-plus") => {
+            weather.wind_beaufort = weather.wind_beaufort.increase();
+        }
+        Some("weather:wind-6") => {
+            weather.wind_beaufort = weather::Beaufort::Six;
+        }
+        None => todo!(),
+        _ => bail!("TODO"),
+    }
+    bot.answer_callback_query(cb.id).await?;
+    bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+    dialoge.update(state).await?;
+    Ok(())
+}
+
 async fn ask_sex(bot: Bot, name: &str, chat_id: ChatId) -> anyhow::Result<()> {
     bot.send_poll(
         chat_id,
@@ -390,6 +444,11 @@ async fn main() -> anyhow::Result<()> {
             Update::filter_message()
                 .filter_map(|u: Update| u.from().cloned())
                 .branch(dptree::case![State::Start].endpoint(State::start)),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .filter_map(|s: State| s.as_walk())
+                .endpoint(weather_change_requested),
         )
         .branch(
             Update::filter_poll()
