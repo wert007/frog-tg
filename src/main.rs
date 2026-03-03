@@ -195,7 +195,6 @@ impl State {
             .await
             .context("Sending the weather via tg to user")?;
         dialoge.update(State::WalkStarted { walk }).await?;
-        found_something(bot, dialoge).await?;
         Ok(())
     }
 
@@ -506,8 +505,12 @@ async fn weather_change_requested(
         None => todo!(),
         _ => bail!("TODO"),
     }
+    let message_id = cb.message.unwrap().id();
     bot.answer_callback_query(cb.id).await?;
-    bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+
+    let m = bot.edit_message_text(dialoge.chat_id(), message_id, weather.as_message());
+    m.reply_markup(WeatherStats::default_weather_keyboard_markup())
+        .await?;
     dialoge.update(state).await?;
     Ok(())
 }
@@ -575,6 +578,15 @@ async fn main() -> anyhow::Result<()> {
         .branch(
             Update::filter_message()
                 .filter_map(|u: Update| u.from().cloned())
+                .branch(
+                    dptree::filter_map(|m: Message, s: State| {
+                        m.text()
+                            .is_some_and(|t| t.trim() == "/find")
+                            .then(|| s.as_walk())
+                            .flatten()
+                    })
+                    .endpoint(|bot, dialoge| found_something(bot, dialoge)),
+                )
                 .branch(dptree::case![State::Start].endpoint(State::start))
                 .branch(
                     dptree::case![State::EnterTemperature {

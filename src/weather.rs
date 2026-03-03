@@ -18,22 +18,21 @@ impl BotWeatherExt for teloxide::Bot {
         chat_id: C,
         weather: WeatherStats,
     ) -> Result<(), Self::Err> {
+        let m = SendMessage::new(chat_id, weather.as_message());
+
+        let k = WeatherStats::default_weather_keyboard_markup();
+        let m = m.reply_markup(k);
+        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
+
+        // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
+        // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
+        Ok(())
+    }
+}
+
+impl WeatherStats {
+    pub fn default_weather_keyboard_markup() -> InlineKeyboardMarkup {
         use teloxide::types::InlineKeyboardButtonKind::CallbackData;
-        let temperature = if let Some(end) = weather.temperature_end {
-            format!("{}-{}", weather.temperature_start, end)
-        } else {
-            weather.temperature_start.to_string()
-        };
-        let text = format!(
-            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}\n\n/find",
-            temperature,
-            weather.wind_beaufort,
-            weather.percipation,
-            weather.wmo_code,
-            weather.ground_humidity,
-            weather.cloudiness
-        );
-        let m = SendMessage::new(chat_id, text);
 
         let k = InlineKeyboardMarkup::new([
             vec![
@@ -78,12 +77,7 @@ impl BotWeatherExt for teloxide::Bot {
                 InlineKeyboardButton::new("All clouds", CallbackData("weather:clouds-100".into())),
             ],
         ]);
-        let m = m.reply_markup(k);
-        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
-
-        // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
-        // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
-        Ok(())
+        k
     }
 }
 
@@ -292,6 +286,25 @@ pub struct WeatherStats {
     pub cloudiness: Cloudiness,
     wmo_code: u8,
     raw: OpenMeteoResponse,
+}
+
+impl WeatherStats {
+    pub fn as_message(&self) -> String {
+        let temperature = if let Some(end) = self.temperature_end {
+            format!("{}-{}", self.temperature_start, end)
+        } else {
+            self.temperature_start.to_string()
+        };
+        format!(
+            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}\n\n/find",
+            temperature,
+            self.wind_beaufort,
+            self.percipation,
+            self.wmo_code,
+            self.ground_humidity,
+            self.cloudiness
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
