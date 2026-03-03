@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, bail};
+use anyhow::{Context, anyhow, bail};
 use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
@@ -124,10 +124,69 @@ pub enum State {
         sex: Sex,
         location: usize,
     },
-    End,
+    EnterTemperature {
+        is_start: bool,
+        prev_state: Box<State>,
+    },
+    ChangePercipation {
+        prev_state: Box<State>,
+    },
 }
 
 impl State {
+    fn as_walk(&self) -> Option<CompleteWalk> {
+        match self {
+            State::Start => None,
+            State::WalkStarted { walk } => Some(walk.clone()),
+            State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
+            State::DeadFrog { walk } => Some(walk.clone()),
+            State::DeadFrogName { walk, .. } => Some(walk.clone()),
+            State::FrogIdentified { walk, .. } => Some(walk.clone()),
+            State::FrogIdentifiedSex { walk, .. } => Some(walk.clone()),
+            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk.clone()),
+            State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
+        }
+    }
+
+    fn as_walk_mut(&mut self) -> Option<&mut CompleteWalk> {
+        match self {
+            State::Start => None,
+            State::WalkStarted { walk } => Some(walk),
+            State::QuestionaireFrogName { walk, .. } => Some(walk),
+            State::DeadFrog { walk } => Some(walk),
+            State::DeadFrogName { walk, .. } => Some(walk),
+            State::FrogIdentified { walk, .. } => Some(walk),
+            State::FrogIdentifiedSex { walk, .. } => Some(walk),
+            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk),
+            State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
+        }
+    }
+
+    async fn enter_temperature(
+        bot: Bot,
+        dialoge: DialogueState,
+        (is_start, prev_state): (bool, Box<State>),
+        message: Message,
+    ) -> anyhow::Result<()> {
+        let temp = message
+            .text()
+            .ok_or(anyhow!("There should be a text message???"))?;
+        let temp: f64 = temp.parse()?;
+        let mut state = *prev_state;
+        let weather = &mut state
+            .as_walk_mut()
+            .expect("Should be set at this point?")
+            .weather;
+        if is_start {
+            weather.temperature_start = temp;
+        } else {
+            weather.temperature_end = Some(temp);
+        }
+        bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        dialoge.update(state).await?;
+        Ok(())
+    }
+
     async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
         let walk = CompleteWalk::start()
             .await
@@ -136,7 +195,32 @@ impl State {
             .await
             .context("Sending the weather via tg to user")?;
         dialoge.update(State::WalkStarted { walk }).await?;
-        found_something(bot, dialoge).await?;
+        Ok(())
+    }
+
+    async fn change_percipation(
+        bot: Bot,
+        prev_state: Box<State>,
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        use weather::Percipation::*;
+        let percipation = match poll.selected_index() {
+            0 => None,
+            1 => Fog,
+            2 => Drizzle,
+            3 => ModerateRain,
+            4 => StrongRain,
+            5 => Graupel,
+            6 => Snow,
+            -1 => bail!("TODO, no unselecting allowed!"),
+            _ => unreachable!(),
+        };
+        let mut state = *prev_state;
+        let weather = &mut state.as_walk_mut().expect("Should be unreachable").weather;
+        weather.percipation = percipation;
+        bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        dialoge.update(state).await?;
         Ok(())
     }
 
@@ -326,6 +410,111 @@ async fn found_something(
     Ok(())
 }
 
+async fn weather_change_requested(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    cb: CallbackQuery,
+) -> anyhow::Result<()> {
+    let mut state = dialoge.get_or_default().await?;
+    let weather = &mut state.as_walk_mut().unwrap().weather;
+    match cb.data.as_ref().map(|s| s.as_str()) {
+        Some("weather:wind-0") => {
+            weather.wind_beaufort = weather::Beaufort::Zero;
+        }
+        Some("weather:wind-minus") => {
+            weather.wind_beaufort = weather.wind_beaufort.decrease();
+        }
+        Some("weather:wind-plus") => {
+            weather.wind_beaufort = weather.wind_beaufort.increase();
+        }
+        Some("weather:wind-6") => {
+            weather.wind_beaufort = weather::Beaufort::Six;
+        }
+        Some("weather:clouds-0") => {
+            weather.cloudiness = weather::Cloudiness::Clear;
+        }
+        Some("weather:clouds-less") => {
+            weather.cloudiness = weather.cloudiness.decrease();
+        }
+        Some("weather:clouds-more") => {
+            weather.cloudiness = weather.cloudiness.increase();
+        }
+        Some("weather:clouds-100") => {
+            weather.cloudiness = weather::Cloudiness::AllClouds;
+        }
+        Some("weather:ground-wet") => {
+            weather.ground_humidity = weather::GroundHumidity::Wet;
+        }
+        Some("weather:ground-humid") => {
+            weather.ground_humidity = weather::GroundHumidity::Humid;
+        }
+        Some("weather:ground-dry") => {
+            weather.ground_humidity = weather::GroundHumidity::Dry;
+        }
+        Some("weather:ground-very-dry") => {
+            weather.ground_humidity = weather::GroundHumidity::VeryDry;
+        }
+        Some("weather:temperature-start-change") => {
+            dialoge
+                .update(State::EnterTemperature {
+                    is_start: true,
+                    prev_state: Box::new(state),
+                })
+                .await?;
+            bot.send_message(dialoge.chat_id(), "Enter now your starting temperature:")
+                .await?;
+            bot.answer_callback_query(cb.id).await?;
+            return Ok(());
+        }
+        Some("weather:temperature-end-change") => {
+            dialoge
+                .update(State::EnterTemperature {
+                    is_start: false,
+                    prev_state: Box::new(state),
+                })
+                .await?;
+            bot.send_message(dialoge.chat_id(), "Enter now your ending temperature:")
+                .await?;
+            bot.answer_callback_query(cb.id).await?;
+            return Ok(());
+        }
+        Some("weather:percipation-change") => {
+            dialoge
+                .update(State::ChangePercipation {
+                    prev_state: Box::new(state),
+                })
+                .await?;
+            bot.send_poll(
+                dialoge.chat_id(),
+                "Select the current percipation:",
+                [
+                    weather::Percipation::None,
+                    weather::Percipation::Fog,
+                    weather::Percipation::Drizzle,
+                    weather::Percipation::ModerateRain,
+                    weather::Percipation::StrongRain,
+                    weather::Percipation::Graupel,
+                    weather::Percipation::Snow,
+                ]
+                .map(|e| InputPollOption::new(e.to_string())),
+            )
+            .await?;
+            bot.answer_callback_query(cb.id).await?;
+            return Ok(());
+        }
+        None => todo!(),
+        _ => bail!("TODO"),
+    }
+    let message_id = cb.message.unwrap().id();
+    bot.answer_callback_query(cb.id).await?;
+
+    let m = bot.edit_message_text(dialoge.chat_id(), message_id, weather.as_message());
+    m.reply_markup(WeatherStats::default_weather_keyboard_markup())
+        .await?;
+    dialoge.update(state).await?;
+    Ok(())
+}
+
 async fn ask_sex(bot: Bot, name: &str, chat_id: ChatId) -> anyhow::Result<()> {
     bot.send_poll(
         chat_id,
@@ -389,10 +578,35 @@ async fn main() -> anyhow::Result<()> {
         .branch(
             Update::filter_message()
                 .filter_map(|u: Update| u.from().cloned())
-                .branch(dptree::case![State::Start].endpoint(State::start)),
+                .branch(
+                    dptree::filter_map(|m: Message, s: State| {
+                        m.text()
+                            .is_some_and(|t| t.trim() == "/find")
+                            .then(|| s.as_walk())
+                            .flatten()
+                    })
+                    .endpoint(|bot, dialoge| found_something(bot, dialoge)),
+                )
+                .branch(dptree::case![State::Start].endpoint(State::start))
+                .branch(
+                    dptree::case![State::EnterTemperature {
+                        is_start,
+                        prev_state
+                    }]
+                    .endpoint(State::enter_temperature),
+                ),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .filter_map(|s: State| s.as_walk())
+                .endpoint(weather_change_requested),
         )
         .branch(
             Update::filter_poll()
+                .branch(
+                    dptree::case![State::ChangePercipation { prev_state }]
+                        .endpoint(State::change_percipation),
+                )
                 .branch(
                     dptree::case![State::WalkStarted { walk }]
                         .endpoint(State::poll_answer_walk_started),

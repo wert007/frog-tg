@@ -1,4 +1,8 @@
 use anyhow::{Context, bail};
+use teloxide::{
+    payloads::{SendMessage, SendMessageSetters},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+};
 
 pub trait BotWeatherExt: teloxide::prelude::Requester {
     async fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
@@ -14,23 +18,73 @@ impl BotWeatherExt for teloxide::Bot {
         chat_id: C,
         weather: WeatherStats,
     ) -> Result<(), Self::Err> {
-        let text = format!(
-            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nCloudiness: {}",
-            weather.temperature_start,
-            weather.wind_beaufort,
-            weather.percipation,
-            weather.wmo_code,
-            weather.cloudiness
-        );
-        teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
+        let m = SendMessage::new(chat_id, weather.as_message());
+
+        let k = WeatherStats::default_weather_keyboard_markup();
+        let m = m.reply_markup(k);
+        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
+
+        // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
+        // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
         Ok(())
+    }
+}
+
+impl WeatherStats {
+    pub fn default_weather_keyboard_markup() -> InlineKeyboardMarkup {
+        use teloxide::types::InlineKeyboardButtonKind::CallbackData;
+
+        let k = InlineKeyboardMarkup::new([
+            vec![
+                InlineKeyboardButton::new(
+                    "Enter Start Temperature",
+                    CallbackData("weather:temperature-start-change".into()),
+                ),
+                InlineKeyboardButton::new(
+                    "Enter End Temperature",
+                    CallbackData("weather:temperature-end-change".into()),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new("Wind 0", CallbackData("weather:wind-0".into())),
+                InlineKeyboardButton::new("Wind ➖", CallbackData("weather:wind-minus".into())),
+                InlineKeyboardButton::new("Wind ➕", CallbackData("weather:wind-plus".into())),
+                InlineKeyboardButton::new("Wind 7", CallbackData("weather:wind-6".into())),
+            ],
+            vec![InlineKeyboardButton::new(
+                "Change Percipation",
+                CallbackData("weather:percipation-change".into()),
+            )],
+            vec![
+                InlineKeyboardButton::new("Wet ⛰️", CallbackData("weather:ground-wet".into())),
+                InlineKeyboardButton::new("Humid ⛰️", CallbackData("weather:ground-humid".into())),
+                InlineKeyboardButton::new("Dry ⛰️", CallbackData("weather:ground-dry".into())),
+                InlineKeyboardButton::new(
+                    "V. Dry ⛰️",
+                    CallbackData("weather:ground-very-dry".into()),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new("Clear Sky", CallbackData("weather:clouds-0".into())),
+                InlineKeyboardButton::new(
+                    "Less Clouds",
+                    CallbackData("weather:clouds-less".into()),
+                ),
+                InlineKeyboardButton::new(
+                    "More Clouds",
+                    CallbackData("weather:clouds-more".into()),
+                ),
+                InlineKeyboardButton::new("All clouds", CallbackData("weather:clouds-100".into())),
+            ],
+        ]);
+        k
     }
 }
 
 const OPENMETEO_URL: &'static str = include_str!("../openmeteo-url.txt").trim_ascii();
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Beaufort {
+pub enum Beaufort {
     Zero,
     One,
     Two,
@@ -69,10 +123,36 @@ impl Beaufort {
             _ => Beaufort::Higher,
         }
     }
+
+    pub(crate) fn decrease(&self) -> Beaufort {
+        match self {
+            Beaufort::Zero => Beaufort::Zero,
+            Beaufort::One => Beaufort::Zero,
+            Beaufort::Two => Beaufort::One,
+            Beaufort::Three => Beaufort::Two,
+            Beaufort::Four => Beaufort::Three,
+            Beaufort::Five => Beaufort::Four,
+            Beaufort::Six => Beaufort::Five,
+            Beaufort::Higher => Beaufort::Six,
+        }
+    }
+
+    pub(crate) fn increase(&self) -> Beaufort {
+        match self {
+            Beaufort::Zero => Beaufort::One,
+            Beaufort::One => Beaufort::Two,
+            Beaufort::Two => Beaufort::Three,
+            Beaufort::Three => Beaufort::Four,
+            Beaufort::Four => Beaufort::Five,
+            Beaufort::Five => Beaufort::Six,
+            Beaufort::Six => Beaufort::Higher,
+            Beaufort::Higher => Beaufort::Higher,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Percipation {
+pub enum Percipation {
     None,
     StrongRain,
     ModerateRain,
@@ -114,15 +194,28 @@ impl Percipation {
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum GroundHumidity {
+pub enum GroundHumidity {
+    Unknown,
     Wet,
     Humid,
     Dry,
     VeryDry,
 }
 
+impl std::fmt::Display for GroundHumidity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GroundHumidity::Unknown => write!(f, "?"),
+            GroundHumidity::Wet => write!(f, "wet"),
+            GroundHumidity::Humid => write!(f, "humid"),
+            GroundHumidity::Dry => write!(f, "dry"),
+            GroundHumidity::VeryDry => write!(f, "very dry"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-enum Cloudiness {
+pub enum Cloudiness {
     AllClouds,
     ManyClouds,
     Clouds,
@@ -159,18 +252,59 @@ impl Cloudiness {
             err => Self::Error(err),
         }
     }
+
+    pub(crate) fn decrease(&self) -> Cloudiness {
+        match self {
+            Cloudiness::AllClouds => Cloudiness::ManyClouds,
+            Cloudiness::ManyClouds => Cloudiness::Clouds,
+            Cloudiness::Clouds => Cloudiness::FewClouds,
+            Cloudiness::FewClouds => Cloudiness::Clear,
+            Cloudiness::Clear => Cloudiness::Clear,
+            it => *it,
+        }
+    }
+
+    pub(crate) fn increase(&self) -> Cloudiness {
+        match self {
+            Cloudiness::AllClouds => Cloudiness::AllClouds,
+            Cloudiness::ManyClouds => Cloudiness::AllClouds,
+            Cloudiness::Clouds => Cloudiness::ManyClouds,
+            Cloudiness::FewClouds => Cloudiness::Clouds,
+            Cloudiness::Clear => Cloudiness::FewClouds,
+            it => *it,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub struct WeatherStats {
-    temperature_start: f64,
-    temperature_end: Option<f64>,
-    wind_beaufort: Beaufort,
-    percipation: Percipation,
-    ground_humidity: Option<GroundHumidity>,
-    cloudiness: Cloudiness,
+    pub temperature_start: f64,
+    pub temperature_end: Option<f64>,
+    pub wind_beaufort: Beaufort,
+    pub percipation: Percipation,
+    pub ground_humidity: GroundHumidity,
+    pub cloudiness: Cloudiness,
     wmo_code: u8,
     raw: OpenMeteoResponse,
+}
+
+impl WeatherStats {
+    pub fn as_message(&self) -> String {
+        let temperature = if let Some(end) = self.temperature_end {
+            format!("{}-{}", self.temperature_start, end)
+        } else {
+            self.temperature_start.to_string()
+        };
+        format!(
+            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}\n\n/find",
+            temperature,
+            self.wind_beaufort,
+            self.percipation,
+            self.wmo_code,
+            self.ground_humidity,
+            self.cloudiness
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -207,7 +341,7 @@ impl WeatherStats {
             temperature_end: None,
             wind_beaufort,
             percipation,
-            ground_humidity: None,
+            ground_humidity: GroundHumidity::Unknown,
             cloudiness,
             wmo_code: omr.weather_code,
             raw: omr,
