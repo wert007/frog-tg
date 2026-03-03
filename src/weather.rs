@@ -20,11 +20,12 @@ impl BotWeatherExt for teloxide::Bot {
     ) -> Result<(), Self::Err> {
         use teloxide::types::InlineKeyboardButtonKind::CallbackData;
         let text = format!(
-            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nCloudiness: {}",
+            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}",
             weather.temperature_start,
             weather.wind_beaufort,
             weather.percipation,
             weather.wmo_code,
+            weather.ground_humidity,
             weather.cloudiness
         );
         let m = SendMessage::new(chat_id, text);
@@ -50,6 +51,15 @@ impl BotWeatherExt for teloxide::Bot {
                 "Change Percipation",
                 CallbackData("weather:percipation-change".into()),
             )],
+            vec![
+                InlineKeyboardButton::new("Wet ⛰️", CallbackData("weather:ground-wet".into())),
+                InlineKeyboardButton::new("Humid ⛰️", CallbackData("weather:ground-humid".into())),
+                InlineKeyboardButton::new("Dry ⛰️", CallbackData("weather:ground-dry".into())),
+                InlineKeyboardButton::new(
+                    "V. Dry ⛰️",
+                    CallbackData("weather:ground-very-dry".into()),
+                ),
+            ],
             vec![
                 InlineKeyboardButton::new("Clear Sky", CallbackData("weather:clouds-0".into())),
                 InlineKeyboardButton::new(
@@ -186,10 +196,23 @@ impl Percipation {
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub enum GroundHumidity {
+    Unknown,
     Wet,
     Humid,
     Dry,
     VeryDry,
+}
+
+impl std::fmt::Display for GroundHumidity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GroundHumidity::Unknown => write!(f, "?"),
+            GroundHumidity::Wet => write!(f, "wet"),
+            GroundHumidity::Humid => write!(f, "humid"),
+            GroundHumidity::Dry => write!(f, "dry"),
+            GroundHumidity::VeryDry => write!(f, "very dry"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -260,7 +283,7 @@ pub struct WeatherStats {
     pub temperature_end: Option<f64>,
     pub wind_beaufort: Beaufort,
     pub percipation: Percipation,
-    pub ground_humidity: Option<GroundHumidity>,
+    pub ground_humidity: GroundHumidity,
     pub cloudiness: Cloudiness,
     wmo_code: u8,
     raw: OpenMeteoResponse,
@@ -300,7 +323,7 @@ impl WeatherStats {
             temperature_end: None,
             wind_beaufort,
             percipation,
-            ground_humidity: None,
+            ground_humidity: GroundHumidity::Unknown,
             cloudiness,
             wmo_code: omr.weather_code,
             raw: omr,

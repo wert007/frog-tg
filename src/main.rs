@@ -383,6 +383,18 @@ async fn weather_change_requested(
         Some("weather:clouds-100") => {
             weather.cloudiness = weather::Cloudiness::AllClouds;
         }
+        Some("weather:ground-wet") => {
+            weather.ground_humidity = weather::GroundHumidity::Wet;
+        }
+        Some("weather:ground-humid") => {
+            weather.ground_humidity = weather::GroundHumidity::Humid;
+        }
+        Some("weather:ground-dry") => {
+            weather.ground_humidity = weather::GroundHumidity::Dry;
+        }
+        Some("weather:ground-very-dry") => {
+            weather.ground_humidity = weather::GroundHumidity::VeryDry;
+        }
         None => todo!(),
         _ => bail!("TODO"),
     }
