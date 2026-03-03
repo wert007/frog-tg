@@ -371,6 +371,18 @@ async fn weather_change_requested(
         Some("weather:wind-6") => {
             weather.wind_beaufort = weather::Beaufort::Six;
         }
+        Some("weather:clouds-0") => {
+            weather.cloudiness = weather::Cloudiness::Clear;
+        }
+        Some("weather:clouds-less") => {
+            weather.cloudiness = weather.cloudiness.decrease();
+        }
+        Some("weather:clouds-more") => {
+            weather.cloudiness = weather.cloudiness.increase();
+        }
+        Some("weather:clouds-100") => {
+            weather.cloudiness = weather::Cloudiness::AllClouds;
+        }
         None => todo!(),
         _ => bail!("TODO"),
     }

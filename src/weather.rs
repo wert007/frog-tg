@@ -29,12 +29,40 @@ impl BotWeatherExt for teloxide::Bot {
         );
         let m = SendMessage::new(chat_id, text);
 
-        let k = InlineKeyboardMarkup::new([[
-            InlineKeyboardButton::new("Wind 0", CallbackData("weather:wind-0".into())),
-            InlineKeyboardButton::new("Wind ➖", CallbackData("weather:wind-minus".into())),
-            InlineKeyboardButton::new("Wind ➕", CallbackData("weather:wind-plus".into())),
-            InlineKeyboardButton::new("Wind 7", CallbackData("weather:wind-6".into())),
-        ]]);
+        let k = InlineKeyboardMarkup::new([
+            vec![
+                InlineKeyboardButton::new(
+                    "Enter Start Temperature",
+                    CallbackData("weather:temperature-start-change".into()),
+                ),
+                InlineKeyboardButton::new(
+                    "Enter Start Temperature",
+                    CallbackData("weather:temperature-end-change".into()),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new("Wind 0", CallbackData("weather:wind-0".into())),
+                InlineKeyboardButton::new("Wind ➖", CallbackData("weather:wind-minus".into())),
+                InlineKeyboardButton::new("Wind ➕", CallbackData("weather:wind-plus".into())),
+                InlineKeyboardButton::new("Wind 7", CallbackData("weather:wind-6".into())),
+            ],
+            vec![InlineKeyboardButton::new(
+                "Change Percipation",
+                CallbackData("weather:percipation-change".into()),
+            )],
+            vec![
+                InlineKeyboardButton::new("Clear Sky", CallbackData("weather:clouds-0".into())),
+                InlineKeyboardButton::new(
+                    "Less Clouds",
+                    CallbackData("weather:clouds-less".into()),
+                ),
+                InlineKeyboardButton::new(
+                    "More Clouds",
+                    CallbackData("weather:clouds-more".into()),
+                ),
+                InlineKeyboardButton::new("All clouds", CallbackData("weather:clouds-100".into())),
+            ],
+        ]);
         let m = m.reply_markup(k);
         <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
 
@@ -200,6 +228,28 @@ impl Cloudiness {
             60.0..80.0 => Self::ManyClouds,
             80.0..=100.0 => Self::AllClouds,
             err => Self::Error(err),
+        }
+    }
+
+    pub(crate) fn decrease(&self) -> Cloudiness {
+        match self {
+            Cloudiness::AllClouds => Cloudiness::ManyClouds,
+            Cloudiness::ManyClouds => Cloudiness::Clouds,
+            Cloudiness::Clouds => Cloudiness::FewClouds,
+            Cloudiness::FewClouds => Cloudiness::Clear,
+            Cloudiness::Clear => Cloudiness::Clear,
+            it => *it,
+        }
+    }
+
+    pub(crate) fn increase(&self) -> Cloudiness {
+        match self {
+            Cloudiness::AllClouds => Cloudiness::AllClouds,
+            Cloudiness::ManyClouds => Cloudiness::AllClouds,
+            Cloudiness::Clouds => Cloudiness::ManyClouds,
+            Cloudiness::FewClouds => Cloudiness::Clouds,
+            Cloudiness::Clear => Cloudiness::FewClouds,
+            it => *it,
         }
     }
 }
