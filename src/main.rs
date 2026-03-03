@@ -199,6 +199,32 @@ impl State {
         Ok(())
     }
 
+    async fn change_percipation(
+        bot: Bot,
+        prev_state: Box<State>,
+        dialoge: DialogueState,
+        poll: Poll,
+    ) -> anyhow::Result<()> {
+        use weather::Percipation::*;
+        let percipation = match poll.selected_index() {
+            0 => None,
+            1 => Fog,
+            2 => Drizzle,
+            3 => ModerateRain,
+            4 => StrongRain,
+            5 => Graupel,
+            6 => Snow,
+            -1 => bail!("TODO, no unselecting allowed!"),
+            _ => unreachable!(),
+        };
+        let mut state = *prev_state;
+        let weather = &mut state.as_walk_mut().expect("Should be unreachable").weather;
+        weather.percipation = percipation;
+        bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        dialoge.update(state).await?;
+        Ok(())
+    }
+
     async fn poll_answer_walk_started(
         bot: Bot,
         walk: CompleteWalk,
@@ -565,6 +591,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .branch(
             Update::filter_poll()
+                .branch(
+                    dptree::case![State::ChangePercipation { prev_state }]
+                        .endpoint(State::change_percipation),
+                )
                 .branch(
                     dptree::case![State::WalkStarted { walk }]
                         .endpoint(State::poll_answer_walk_started),

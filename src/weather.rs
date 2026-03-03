@@ -19,9 +19,14 @@ impl BotWeatherExt for teloxide::Bot {
         weather: WeatherStats,
     ) -> Result<(), Self::Err> {
         use teloxide::types::InlineKeyboardButtonKind::CallbackData;
+        let temperature = if let Some(end) = weather.temperature_end {
+            format!("{}-{}", weather.temperature_start, end)
+        } else {
+            weather.temperature_start.to_string()
+        };
         let text = format!(
-            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}",
-            weather.temperature_start,
+            "Temperature: {} °C\nWind: {}\nPercipation: {} (WMO: {})\nGround: {}\nCloudiness: {}\n\n/find",
+            temperature,
             weather.wind_beaufort,
             weather.percipation,
             weather.wmo_code,
@@ -37,7 +42,7 @@ impl BotWeatherExt for teloxide::Bot {
                     CallbackData("weather:temperature-start-change".into()),
                 ),
                 InlineKeyboardButton::new(
-                    "Enter Start Temperature",
+                    "Enter End Temperature",
                     CallbackData("weather:temperature-end-change".into()),
                 ),
             ],
