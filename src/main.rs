@@ -330,7 +330,7 @@ impl State {
             name => Some(name.to_string()),
         };
         dialoge.update(State::DeadFrogName { walk, name }).await?;
-        ask_for_location(bot, dialoge).await?;
+        ask_for_location(bot, dialoge.chat_id()).await?;
         Ok(())
     }
 
@@ -381,7 +381,7 @@ impl State {
         dialoge
             .update(State::FrogIdentifiedSex { name, walk, sex })
             .await?;
-        ask_for_location(bot, dialoge).await?;
+        ask_for_location(bot, dialoge.chat_id()).await?;
         Ok(())
     }
     async fn frog_identified_sex(
@@ -436,10 +436,7 @@ impl State {
     }
 }
 
-async fn ask_for_location(
-    bot: Bot,
-    dialoge: Dialogue<State, InMemStorage<State>>,
-) -> Result<(), anyhow::Error> {
+async fn ask_for_location(bot: Bot, chat_id: ChatId) -> Result<(), anyhow::Error> {
     let locations: Vec<InputPollOption> = include_str!("../locations.txt")
         .lines()
         .filter(|l| !l.is_empty())
@@ -447,7 +444,7 @@ async fn ask_for_location(
         .collect();
     // TODO: This is probably only changing slowly and not all the time. Can we
     // easily remember the last choice?
-    bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
+    bot.send_poll(chat_id, "Where are you right now?", locations)
         .await?;
     Ok(())
 }
