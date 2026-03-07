@@ -205,3 +205,31 @@ pub(crate) async fn springfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Err
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn knoblauchkroete(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "Ovale Drüse am Oberarm",
+            "Quakt",
+            "Hat keine Drüse am Oberarm und quakt nicht",
+            "Unsicher",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn knoblauchkroete_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("Cannot unselect answers"),
+        0..2 => Sex::Male,
+        2 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
