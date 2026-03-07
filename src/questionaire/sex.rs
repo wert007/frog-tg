@@ -90,3 +90,33 @@ pub(crate) async fn teichmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn grasfrosch(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "Kehle sieht blau aus",
+            "Schwarze Brunstschwielen an Daumen",
+            "Kräftige (Unter-)Arme",
+            "Keine Brunstschwielen",
+            "Weiße/Helle Pickel an Körperseite/(hinteren) Rücken/Hinterbeinen",
+            "Unsicher/Nichts trifft zu",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn grasfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("No unselecting supported"),
+        0..3 => Sex::Male,
+        3..5 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
