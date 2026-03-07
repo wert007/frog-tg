@@ -455,6 +455,7 @@ async fn weather_change_requested(
 ) -> anyhow::Result<()> {
     let mut state = dialoge.get_or_default().await?;
     let weather = &mut state.as_walk_mut().unwrap().weather;
+    let before = *weather;
     match cb.data.as_ref().map(|s| s.as_str()) {
         Some("weather:wind-0") => {
             weather.wind_beaufort = weather::Beaufort::Zero;
@@ -546,10 +547,12 @@ async fn weather_change_requested(
     let message_id = cb.message.unwrap().id();
     bot.answer_callback_query(cb.id).await?;
 
-    let m = bot.edit_message_text(dialoge.chat_id(), message_id, weather.as_message());
-    m.reply_markup(WeatherStats::default_weather_keyboard_markup())
-        .await?;
-    dialoge.update(state).await?;
+    if before != *weather {
+        let m = bot.edit_message_text(dialoge.chat_id(), message_id, weather.as_message());
+        m.reply_markup(WeatherStats::default_weather_keyboard_markup())
+            .await?;
+        dialoge.update(state).await?;
+    }
     Ok(())
 }
 
