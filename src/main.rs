@@ -133,6 +133,10 @@ pub enum State {
         walk: CompleteWalk,
         questionaire: questionaire::QuestionaireFrogName,
     },
+    QuestionaireSex {
+        walk: CompleteWalk,
+        questionaire: questionaire::QuestionaireSex,
+    },
     DeadFrog {
         walk: CompleteWalk,
     },
@@ -170,6 +174,7 @@ impl State {
             State::Start => None,
             State::WalkStarted { walk } => Some(walk.clone()),
             State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
+            State::QuestionaireSex { walk, .. } => Some(walk.clone()),
             State::DeadFrog { walk } => Some(walk.clone()),
             State::DeadFrogName { walk, .. } => Some(walk.clone()),
             State::FrogIdentified { walk, .. } => Some(walk.clone()),
@@ -184,6 +189,7 @@ impl State {
             State::Start => None,
             State::WalkStarted { walk } => Some(walk),
             State::QuestionaireFrogName { walk, .. } => Some(walk),
+            State::QuestionaireSex { walk, .. } => Some(walk),
             State::DeadFrog { walk } => Some(walk),
             State::DeadFrogName { walk, .. } => Some(walk),
             State::FrogIdentified { walk, .. } => Some(walk),
@@ -324,15 +330,7 @@ impl State {
             name => Some(name.to_string()),
         };
         dialoge.update(State::DeadFrogName { walk, name }).await?;
-        let locations: Vec<InputPollOption> = include_str!("../locations.txt")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(InputPollOption::new)
-            .collect();
-        // TODO: This is probably only changing slowly and not all the time. Can
-        // we easily remember the last choice?
-        bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
-            .await?;
+        ask_for_location(bot, dialoge).await?;
         Ok(())
     }
 
@@ -368,21 +366,22 @@ impl State {
             "Male" => Sex::Male,
             "Female" => Sex::Female,
             "Unknown" => Sex::Unknown,
-            "Use Questionaire" => bail!("TODO"),
+            "Use Questionaire" => {
+                dialoge
+                    .update(State::QuestionaireSex {
+                        walk,
+                        questionaire: questionaire::QuestionaireSex::new(name.clone()),
+                    })
+                    .await?;
+                questionaire::start_sex(bot, dialoge, &name).await?;
+                return Ok(());
+            }
             _ => unreachable!(),
         };
         dialoge
             .update(State::FrogIdentifiedSex { name, walk, sex })
             .await?;
-        let locations: Vec<InputPollOption> = include_str!("../locations.txt")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(InputPollOption::new)
-            .collect();
-        // TODO: This is probably only changing slowly and not all the time. Can
-        // we easily remember the last choice?
-        bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
-            .await?;
+        ask_for_location(bot, dialoge).await?;
         Ok(())
     }
     async fn frog_identified_sex(
@@ -435,6 +434,22 @@ impl State {
         found_something(bot, dialoge).await?;
         Ok(())
     }
+}
+
+async fn ask_for_location(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    let locations: Vec<InputPollOption> = include_str!("../locations.txt")
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(InputPollOption::new)
+        .collect();
+    // TODO: This is probably only changing slowly and not all the time. Can we
+    // easily remember the last choice?
+    bot.send_poll(dialoge.chat_id(), "Where are you right now?", locations)
+        .await?;
+    Ok(())
 }
 
 async fn found_something(
@@ -692,6 +707,10 @@ async fn main() -> anyhow::Result<()> {
                     dptree::case![State::QuestionaireFrogName { walk, questionaire }]
                         .filter(|(_, q): (CompleteWalk, QuestionaireFrogName)| q.species.is_some())
                         .endpoint(questionaire::found_frog_name),
+                )
+                .branch(
+                    dptree::case![State::QuestionaireSex { walk, questionaire }]
+                        .endpoint(questionaire::found_sex),
                 )
                 .branch(
                     dptree::case![State::FrogIdentified { name, walk }]

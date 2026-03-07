@@ -1,7 +1,9 @@
 use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::InputPollOption};
 
-use crate::{CompleteWalk, PollExt, State, ask_sex};
+use crate::{CompleteWalk, PollExt, Sex, State, ask_for_location, ask_sex};
+
+mod sex;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Species {
@@ -13,6 +15,16 @@ pub enum Species {
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireFrogName {
     pub species: Option<Species>,
+}
+#[derive(Debug, Default, Clone)]
+pub struct QuestionaireSex {
+    pub name: String,
+    pub result: Option<Sex>,
+}
+impl QuestionaireSex {
+    pub(crate) fn new(name: String) -> Self {
+        Self { name, result: None }
+    }
 }
 
 pub(crate) async fn start(
@@ -126,5 +138,30 @@ pub(crate) async fn found_frog_name(
         })
         .await?;
     ask_sex(bot, name, dialoge.chat_id()).await?;
+    Ok(())
+}
+
+pub(crate) async fn start_sex(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    name: &str,
+) -> anyhow::Result<()> {
+    match name {
+        "Erdkröte" => sex::erdkroete(bot, dialoge).await,
+        _ => bail!("Unhandled species {name}!"),
+    }
+}
+
+pub(crate) async fn found_sex(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    (walk, questionaire): (CompleteWalk, QuestionaireSex),
+    poll: Poll,
+) -> anyhow::Result<()> {
+    match questionaire.name.as_str() {
+        "Erdkröte" => sex::erdkroete_answered(bot.clone(), dialoge.clone(), walk, poll).await,
+        _ => bail!("Unhandled species {}!", questionaire.name),
+    }?;
+    ask_for_location(bot, dialoge).await?;
     Ok(())
 }
