@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, anyhow, bail};
 use chrono::{DateTime, Local};
@@ -88,6 +89,35 @@ impl CompleteWalk {
             frogs: Vec::new(),
             dead_frogs: Vec::new(),
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Mode(Arc<AtomicBool>);
+
+impl Mode {
+    pub fn change_to_debug(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub fn change_to_release(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub fn as_path(&self) -> &'static str {
+        if self.is_debug() {
+            "debug-walks"
+        } else {
+            "walks"
+        }
+    }
+
+    pub fn create_debug() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+    pub fn create_release() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+    pub fn is_debug(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -187,10 +217,17 @@ impl State {
         Ok(())
     }
 
-    async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
+    async fn start(bot: Bot, dialoge: DialogueState, mode: Mode) -> anyhow::Result<()> {
         let walk = CompleteWalk::start()
             .await
             .context("Creating walk for new walk created by user")?;
+        if mode.is_debug() {
+            bot.send_message(
+                dialoge.chat_id(),
+                "You are in test mode. Press /realfrogs to actually record your walk!",
+            )
+            .await?;
+        }
         bot.send_weather_stats(dialoge.chat_id(), walk.weather)
             .await
             .context("Sending the weather via tg to user")?;
@@ -229,10 +266,11 @@ impl State {
         walk: CompleteWalk,
         dialoge: DialogueState,
         poll: Poll,
+        mode: Mode,
     ) -> anyhow::Result<()> {
         match poll.selected() {
             "End" => {
-                end_walk(bot, walk, dialoge).await?;
+                end_walk(bot, walk, dialoge, mode).await?;
             }
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
                 dialoge
@@ -529,11 +567,21 @@ async fn end_walk(
     bot: Bot,
     mut walk: CompleteWalk,
     dialoge: Dialogue<State, InMemStorage<State>>,
+    mode: Mode,
 ) -> Result<(), anyhow::Error> {
     let date = Local::now();
-    let existing = glob::glob(&format!("walks/{}*.json", date.format("%Y-%m-%d")))?;
+    let existing = glob::glob(&format!(
+        "{}/{}*.json",
+        mode.as_path(),
+        date.format("%Y-%m-%d")
+    ))?;
     let index = existing.count();
-    let path = format!("walks/{}({}).json", date.format("%Y-%m-%d"), index + 1);
+    let path = format!(
+        "{}/{}({}).json",
+        mode.as_path(),
+        date.format("%Y-%m-%d"),
+        index + 1
+    );
     walk.end = Some(date);
     _ = walk.weather.ending().await;
     serde_json::to_writer(
@@ -570,8 +618,8 @@ async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(TOKEN);
     let schema = dptree::entry()
         .map(|u: Update, m: Arc<Mutex<ChatId>>| {
-            let i = u.chat().map(|c| c.id).unwrap_or(*m.lock().unwrap());
-            *m.lock().unwrap() = i;
+            let i = u.chat().map(|c| c.id).unwrap_or(*m.lock());
+            *m.lock() = i;
             UpdateWithSuppliedChatId(u, i)
         })
         .enter_dialogue::<UpdateWithSuppliedChatId, InMemStorage<State>, State>()
@@ -586,6 +634,20 @@ async fn main() -> anyhow::Result<()> {
                             .flatten()
                     })
                     .endpoint(|bot, dialoge| found_something(bot, dialoge)),
+                )
+                .branch(
+                    dptree::filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/realfrogs"))
+                        .endpoint(async |m: Mode| {
+                            m.change_to_release();
+                            anyhow::Ok(())
+                        }),
+                )
+                .branch(
+                    dptree::filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/debug"))
+                        .endpoint(async |m: Mode| {
+                            m.change_to_debug();
+                            anyhow::Ok(())
+                        }),
                 )
                 .branch(dptree::case![State::Start].endpoint(State::start))
                 .branch(
@@ -650,7 +712,8 @@ async fn main() -> anyhow::Result<()> {
         .error_handler(Arc::new(error_handler))
         .dependencies(dptree::deps![
             InMemStorage::<State>::new(),
-            Arc::new(Mutex::<ChatId>::new(ChatId(0)))
+            Arc::new(Mutex::<ChatId>::new(ChatId(0))),
+            Mode::create_debug()
         ])
         .build()
         .dispatch()
