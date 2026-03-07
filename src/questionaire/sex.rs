@@ -233,3 +233,32 @@ pub(crate) async fn knoblauchkroete_answered(poll: Poll) -> Result<Sex, anyhow::
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn laubfrosch(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "Schallblase/Quakt",
+            "Kehle gelbbraun/braungrau",
+            "Keine Schallblase",
+            "Kehle weißlich/hellgrau",
+            "Unsicher",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn laubfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("Cannot unselect options"),
+        0..2 => Sex::Male,
+        2..4 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
