@@ -151,6 +151,7 @@ pub(crate) async fn start_sex(
         "Grünfrosch" => sex::gruenfrosch(bot, dialoge).await,
         "Grasfrosch" => sex::grasfrosch(bot, dialoge).await,
         "Teichmolch" => sex::teichmolch(bot, dialoge).await,
+        "Bergmolch" => sex::bergmolch(bot, dialoge).await,
         "Kammmolch" => sex::kammmolch(bot, dialoge).await,
         _ => bail!("Unhandled species {name}!"),
     }
@@ -168,6 +169,7 @@ pub(crate) async fn found_sex(
         "Grünfrosch" => sex::gruenfrosch_answered(poll).await,
         "Grasfrosch" => sex::grasfrosch_answered(poll).await,
         "Teichmolch" => sex::teichmolch_answered(poll).await,
+        "Bergmolch" => sex::bergmolch_answered(poll).await,
         "Kammmolch" => sex::kammmolch_answered(poll).await,
         _ => bail!("Unhandled species {}!", questionaire.name),
     }?;

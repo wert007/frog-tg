@@ -147,3 +147,33 @@ pub(crate) async fn kammmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error>
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn bergmolch(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "Punktstreifen an der Seite gehen bis auf die Arme",
+            "Orangefarbene Linie auf Schwanzunterseite unterbrochen",
+            "Rückenleiste (bis 2mm) vorhanden",
+            "Keine Rückenleiste",
+            "Durchgängige Orangefarbene Linie auf Schwanzunterseite",
+            "Unsicher/Nichts trifft zu",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn bergmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("Unselecting not supported yet"),
+        0..3 => Sex::Male,
+        3..5 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
