@@ -11,6 +11,7 @@ use teloxide::{
 
 use crate::{
     questionaire::QuestionaireFrogName,
+    reports::create_pdf_report,
     weather::{BotWeatherExt, WeatherStats},
 };
 

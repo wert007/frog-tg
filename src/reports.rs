@@ -2,6 +2,12 @@ use std::collections::HashMap;
 
 use crate::FrogFound;
 
+mod pdf;
+
+pub fn create_pdf_report(walk: &crate::CompleteWalk) -> anyhow::Result<()> {
+    pdf::create_pdf_report(walk)
+}
+
 pub(crate) fn create_inline_end_walk_report(walk: &crate::CompleteWalk) -> String {
     use std::fmt::Write;
     if walk.frogs.is_empty() && walk.dead_frogs.is_empty() {
