@@ -15,6 +15,7 @@ use crate::{
 };
 
 mod questionaire;
+mod reports;
 mod weather;
 
 const TOKEN: &'static str = include_str!("../token.txt").trim_ascii();
@@ -592,11 +593,12 @@ async fn end_walk(
         &walk,
     )
     .context("Writing new walk to freshly created walk")?;
+    let inline_report = reports::create_inline_end_walk_report(&walk);
     let duration = date - walk.start;
     bot.send_message(
         dialoge.chat_id(),
         format!(
-            "You finished your walk. You've been at it for {}:{:02} h.\n\nWhenever you want to /start a new walk, I'm ready.",
+            "You finished your walk. You've been at it for {}:{:02} h. {inline_report}\n\nWhenever you want to /start a new walk, I'm ready.",
             duration.num_hours(),
             duration.num_minutes(),
         ),
