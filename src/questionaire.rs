@@ -149,6 +149,7 @@ pub(crate) async fn start_sex(
     match name {
         "Erdkröte" => sex::erdkroete(bot, dialoge).await,
         "Grünfrosch" => sex::gruenfrosch(bot, dialoge).await,
+        "Teichmolch" => sex::teichmolch(bot, dialoge).await,
         _ => bail!("Unhandled species {name}!"),
     }
 }
@@ -160,11 +161,19 @@ pub(crate) async fn found_sex(
     poll: Poll,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
-    match questionaire.name.as_str() {
-        "Erdkröte" => sex::erdkroete_answered(dialoge, walk, poll).await,
-        "Grünfrosch" => sex::gruenfrosch_answered(dialoge, walk, poll).await,
+    let sex = match questionaire.name.as_str() {
+        "Erdkröte" => sex::erdkroete_answered(poll).await,
+        "Grünfrosch" => sex::gruenfrosch_answered(poll).await,
+        "Teichmolch" => sex::teichmolch_answered(poll).await,
         _ => bail!("Unhandled species {}!", questionaire.name),
     }?;
+    dialoge
+        .update(State::FrogIdentifiedSex {
+            name: questionaire.name,
+            walk,
+            sex,
+        })
+        .await?;
     ask_for_location(bot, chat_id).await?;
     Ok(())
 }
