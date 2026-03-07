@@ -148,6 +148,7 @@ pub(crate) async fn start_sex(
 ) -> anyhow::Result<()> {
     match name {
         "Erdkröte" => sex::erdkroete(bot, dialoge).await,
+        "Springfrosch" => sex::springfrosch(bot, dialoge).await,
         "Grünfrosch" => sex::gruenfrosch(bot, dialoge).await,
         "Grasfrosch" => sex::grasfrosch(bot, dialoge).await,
         "Teichmolch" => sex::teichmolch(bot, dialoge).await,
@@ -166,6 +167,7 @@ pub(crate) async fn found_sex(
     let chat_id = dialoge.chat_id();
     let sex = match questionaire.name.as_str() {
         "Erdkröte" => sex::erdkroete_answered(poll).await,
+        "Springfrosch" => sex::springfrosch_answered(poll).await,
         "Grünfrosch" => sex::gruenfrosch_answered(poll).await,
         "Grasfrosch" => sex::grasfrosch_answered(poll).await,
         "Teichmolch" => sex::teichmolch_answered(poll).await,
