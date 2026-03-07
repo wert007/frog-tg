@@ -148,6 +148,7 @@ pub(crate) async fn start_sex(
 ) -> anyhow::Result<()> {
     match name {
         "Erdkröte" => sex::erdkroete(bot, dialoge).await,
+        "Grünfrosch" => sex::gruenfrosch(bot, dialoge).await,
         _ => bail!("Unhandled species {name}!"),
     }
 }
@@ -158,10 +159,12 @@ pub(crate) async fn found_sex(
     (walk, questionaire): (CompleteWalk, QuestionaireSex),
     poll: Poll,
 ) -> anyhow::Result<()> {
+    let chat_id = dialoge.chat_id();
     match questionaire.name.as_str() {
-        "Erdkröte" => sex::erdkroete_answered(bot.clone(), dialoge.clone(), walk, poll).await,
+        "Erdkröte" => sex::erdkroete_answered(dialoge, walk, poll).await,
+        "Grünfrosch" => sex::gruenfrosch_answered(dialoge, walk, poll).await,
         _ => bail!("Unhandled species {}!", questionaire.name),
     }?;
-    ask_for_location(bot, dialoge).await?;
+    ask_for_location(bot, chat_id).await?;
     Ok(())
 }
