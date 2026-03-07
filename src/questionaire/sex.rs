@@ -177,3 +177,31 @@ pub(crate) async fn bergmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error>
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn springfrosch(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "Helle/Graue Brunstschwielen an Daumen",
+            "Quakt",
+            "Keine Brunstschwielen und kein Quaken",
+            "Unsicher",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn springfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("Unselecting not supported"),
+        0..2 => Sex::Male,
+        2 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
