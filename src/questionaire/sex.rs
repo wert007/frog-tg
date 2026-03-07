@@ -120,3 +120,30 @@ pub(crate) async fn grasfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error
         _ => Sex::Unknown,
     })
 }
+
+pub(crate) async fn kammmolch(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+) -> Result<(), anyhow::Error> {
+    bot.send_poll(
+        dialoge.chat_id(),
+        "Select whichever applies",
+        [
+            "silbriger Spiegel (Streifen) an Schwanzseite",
+            "Schwanzunterseite Orange, durchgängig keine Punkte",
+            "Unsicher/Nichts trifft zu",
+        ]
+        .map(InputPollOption::new),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn kammmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+    Ok(match poll.selected_index() {
+        -1 => bail!("No unselecting supported"),
+        0 => Sex::Male,
+        1 => Sex::Female,
+        _ => Sex::Unknown,
+    })
+}
