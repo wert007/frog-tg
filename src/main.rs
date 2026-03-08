@@ -599,7 +599,7 @@ async fn end_walk(
         index + 1
     );
     walk.end = Some(date);
-    _ = walk.weather.ending().await;
+    _ = walk.weather.ending(mode.is_debug()).await;
     serde_json::to_writer(
         std::fs::File::create_new(path).context("Recreating file for current walk")?,
         &walk,

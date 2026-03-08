@@ -348,8 +348,23 @@ impl WeatherStats {
         })
     }
 
-    pub(crate) async fn ending(&mut self) -> anyhow::Result<()> {
-        // TODO: Get temperature at end of walk!
+    pub(crate) async fn ending(&mut self, is_fake: bool) -> anyhow::Result<()> {
+        if !is_fake {
+            let a: serde_json::Value = reqwest::get(OPENMETEO_URL)
+                .await
+                .context("Could not GET <OPENMETEO_URL>")?
+                .error_for_status()
+                .context("Status was error for GET <OPNEMETEO_URL>")?
+                .json()
+                .await
+                .context("Invalid json from GET <OPENMETEO_URL>")?;
+            let Some(a) = a.as_object().map(|a| a.get("current")).flatten() else {
+                bail!("Unexpected response from openmeteo")
+            };
+            let omr: OpenMeteoResponse =
+                serde_json::from_value(a.clone()).context("Unexpected response from openmeteo")?;
+            self.temperature_end = Some(omr.temperature_2m);
+        }
         Ok(())
     }
 }
