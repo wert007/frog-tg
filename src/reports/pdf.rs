@@ -67,35 +67,35 @@ impl FrogCount {
             for i in 0..2 {
                 write(
                     doc,
-                    count.towards[i].male.to_string(),
+                    to_text(species, count.towards[i].male),
                     12,
                     add(position, OFFSET_MALE, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
                     page_id,
                 )?;
                 write(
                     doc,
-                    count.towards[i].female.to_string(),
+                    to_text(species, count.towards[i].female),
                     12,
                     add(position, OFFSET_FEMALE, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
                     page_id,
                 )?;
                 write(
                     doc,
-                    count.towards[i].unknown.to_string(),
+                    to_text(species, count.towards[i].unknown),
                     12,
                     add(position, OFFSET_UNKNOWN, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
                     page_id,
                 )?;
                 write(
                     doc,
-                    count.backwards[i].male.to_string(),
+                    to_text(species, count.backwards[i].male),
                     12,
                     add(position, OFFSET_MALE, OFFSET_BACKWARDS, OFFSET_LOCATION[i]),
                     page_id,
                 )?;
                 write(
                     doc,
-                    count.backwards[i].female.to_string(),
+                    to_text(species, count.backwards[i].female),
                     12,
                     add(
                         position,
@@ -107,7 +107,7 @@ impl FrogCount {
                 )?;
                 write(
                     doc,
-                    count.backwards[i].unknown.to_string(),
+                    to_text(species, count.backwards[i].unknown),
                     12,
                     add(
                         position,
@@ -120,6 +120,26 @@ impl FrogCount {
             }
         }
         Ok(())
+    }
+}
+
+fn to_text(species: &str, count: usize) -> String {
+    if [
+        "Erdkröte",
+        "Grasfrosch",
+        "Teichmolch",
+        "Bergmolch",
+        "Kammmolch",
+    ]
+    .contains(&species)
+    {
+        if count > 0 {
+            count.to_string()
+        } else {
+            "/".into()
+        }
+    } else {
+        String::new()
     }
 }
 
