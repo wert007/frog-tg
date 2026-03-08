@@ -257,6 +257,27 @@ fn position_from_species(species: &str) -> [i32; 2] {
     }
 }
 
+struct DeadFrogCount {
+    found: HashMap<String, usize>,
+}
+impl DeadFrogCount {
+    fn new(dead_frogs: &[crate::DeadFrog]) -> Self {
+        let mut result = Self {
+            found: Default::default(),
+        };
+        for frog in dead_frogs {
+            let name = frog.name.clone().unwrap_or_default();
+            *result.found.entry(name).or_default() += 1;
+        }
+        result
+    }
+
+    fn fill_in(&self, doc: &mut Document, page_id: (u32, u16)) -> anyhow::Result<()> {
+        // TODO: Implement
+        Ok(())
+    }
+}
+
 pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     let mut doc = lopdf::Document::load_mem(TEMPLATE)?;
     doc.add_font(FontData::new(FONT, "default".into()))?;
@@ -270,6 +291,8 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
 
     let frog_count = FrogCount::new(&walk.frogs);
     frog_count.fill_in(&mut doc, page_id)?;
+    let dead_frog_count = DeadFrogCount::new(&walk.dead_frogs);
+    dead_frog_count.fill_in(&mut doc, page_id)?;
 
     doc.save("output.pdf")?;
 
