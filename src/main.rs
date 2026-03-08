@@ -2,7 +2,7 @@ use parking_lot::Mutex;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, anyhow, bail};
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
@@ -61,6 +61,7 @@ pub struct FrogFound {
     location: usize,
     towards: bool,
     time: DateTime<Local>,
+    gps_location: Option<TimedLocation>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -128,6 +129,7 @@ pub struct PartialFrog {
     sex: Option<Sex>,
     location: Option<usize>,
     towards: Option<bool>,
+    gps_location: Option<TimedLocation>,
 }
 impl PartialFrog {
     fn build(self) -> anyhow::Result<FrogFound> {
@@ -138,6 +140,7 @@ impl PartialFrog {
             towards: self
                 .towards
                 .ok_or(anyhow!("Towards or Backwards is needed"))?,
+            gps_location: self.gps_location,
             time: Local::now(),
         })
     }
@@ -276,6 +279,7 @@ impl State {
 
     async fn poll_answer_walk_started(
         bot: Bot,
+        last_location: LastLocation,
         walk: CompleteWalk,
         dialoge: DialogueState,
         poll: Poll,
@@ -290,6 +294,7 @@ impl State {
                     .update(State::FrogIdentified {
                         frog: PartialFrog {
                             name: name.into(),
+                            gps_location: if_is_relevant(last_location),
                             ..Default::default()
                         },
                         walk,
@@ -436,6 +441,17 @@ impl State {
         dialoge.update(State::WalkStarted { walk }).await?;
         found_something(bot, dialoge).await?;
         Ok(())
+    }
+}
+
+fn if_is_relevant(last_location: LastLocation) -> Option<TimedLocation> {
+    let last_location = last_location.lock();
+    if last_location.latitude.is_nan() || last_location.longitude.is_nan() {
+        None
+    } else if (Local::now() - last_location.time).num_minutes() > 5 {
+        None
+    } else {
+        Some(last_location.clone())
     }
 }
 
@@ -650,7 +666,7 @@ impl GetChatId for UpdateWithSuppliedChatId {
 
 type LastLocation = Arc<Mutex<TimedLocation>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct TimedLocation {
     latitude: f64,
     longitude: f64,

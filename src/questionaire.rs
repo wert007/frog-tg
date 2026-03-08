@@ -1,7 +1,10 @@
 use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::InputPollOption};
 
-use crate::{CompleteWalk, PartialFrog, PollExt, Sex, State, ask_for_location, ask_sex};
+use crate::{
+    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, ask_for_location, ask_sex,
+    if_is_relevant,
+};
 
 mod sex;
 
@@ -109,6 +112,7 @@ pub(crate) async fn found_species(
 pub(crate) async fn found_frog_name(
     bot: Bot,
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
+    last_location: LastLocation,
     (walk, questionaire): (CompleteWalk, QuestionaireFrogName),
     poll: Poll,
 ) -> anyhow::Result<()> {
@@ -135,6 +139,7 @@ pub(crate) async fn found_frog_name(
         .update(State::FrogIdentified {
             frog: crate::PartialFrog {
                 name: name.into(),
+                gps_location: if_is_relevant(last_location),
                 ..Default::default()
             },
             walk,
