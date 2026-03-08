@@ -4,7 +4,7 @@ use crate::FrogFound;
 
 mod pdf;
 
-pub fn create_pdf_report(walk: &crate::CompleteWalk) -> anyhow::Result<()> {
+pub fn create_pdf_report(walk: &crate::CompleteWalk) -> anyhow::Result<Vec<u8>> {
     pdf::create_pdf_report(walk)
 }
 

@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap};
 
 use chrono::Timelike;
 use lopdf::{
-    Document, FontData, Object, Stream,
+    Document, FontData, Object, SaveOptions, Stream,
     content::{Content, Operation},
     dictionary,
 };
@@ -278,7 +278,7 @@ impl DeadFrogCount {
     }
 }
 
-pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
+pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<Vec<u8>> {
     let mut doc = lopdf::Document::load_mem(TEMPLATE)?;
     doc.add_font(FontData::new(FONT, "default".into()))?;
 
@@ -294,9 +294,10 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     let dead_frog_count = DeadFrogCount::new(&walk.dead_frogs);
     dead_frog_count.fill_in(&mut doc, page_id)?;
 
-    doc.save("output.pdf")?;
+    let mut result = std::io::Cursor::new(Vec::new());
+    doc.save_with_options(&mut result, SaveOptions::builder().build())?;
 
-    Ok(())
+    Ok(result.into_inner())
 }
 
 fn write_time(

@@ -6,12 +6,11 @@ use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
-    types::InputPollOption,
+    types::{InputFile, InputPollOption},
 };
 
 use crate::{
     questionaire::QuestionaireFrogName,
-    reports::create_pdf_report,
     weather::{BotWeatherExt, WeatherStats},
 };
 
@@ -617,7 +616,22 @@ async fn end_walk(
         ),
     )
     .await?;
+
+    send_pdf_report_to_bot(bot, dialoge.chat_id(), &walk).await?;
+
     dialoge.update(State::Start).await?;
+    Ok(())
+}
+
+async fn send_pdf_report_to_bot(
+    bot: Bot,
+    chat_id: ChatId,
+    walk: &CompleteWalk,
+) -> anyhow::Result<()> {
+    let pdf = reports::create_pdf_report(walk)?;
+    let f =
+        InputFile::memory(pdf).file_name(format!("report-{}.pdf", walk.start.format("%d.%m.%Y")));
+    bot.send_document(chat_id, f).await?;
     Ok(())
 }
 
