@@ -6,7 +6,7 @@ use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
-    types::{InputFile, InputPollOption},
+    types::{InputFile, InputPollOption, Location, UpdateKind},
 };
 
 use crate::{
@@ -61,6 +61,7 @@ pub struct FrogFound {
     location: usize,
     towards: bool,
     time: DateTime<Local>,
+    gps_location: Option<TimedLocation>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -123,6 +124,29 @@ impl Mode {
 }
 
 #[derive(Debug, Default, Clone)]
+pub struct PartialFrog {
+    name: String,
+    sex: Option<Sex>,
+    location: Option<usize>,
+    towards: Option<bool>,
+    gps_location: Option<TimedLocation>,
+}
+impl PartialFrog {
+    fn build(self) -> anyhow::Result<FrogFound> {
+        Ok(FrogFound {
+            name: self.name,
+            sex: self.sex.ok_or(anyhow!("Sex is needed"))?,
+            location: self.location.ok_or(anyhow!("Location is needed"))?,
+            towards: self
+                .towards
+                .ok_or(anyhow!("Towards or Backwards is needed"))?,
+            gps_location: self.gps_location,
+            time: Local::now(),
+        })
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 pub enum State {
     #[default]
     Start,
@@ -145,19 +169,8 @@ pub enum State {
         name: Option<String>,
     },
     FrogIdentified {
-        name: String,
+        frog: PartialFrog,
         walk: CompleteWalk,
-    },
-    FrogIdentifiedSex {
-        name: String,
-        walk: CompleteWalk,
-        sex: Sex,
-    },
-    FrogIdentifiedSexLocation {
-        name: String,
-        walk: CompleteWalk,
-        sex: Sex,
-        location: usize,
     },
     EnterTemperature {
         is_start: bool,
@@ -178,8 +191,6 @@ impl State {
             State::DeadFrog { walk } => Some(walk.clone()),
             State::DeadFrogName { walk, .. } => Some(walk.clone()),
             State::FrogIdentified { walk, .. } => Some(walk.clone()),
-            State::FrogIdentifiedSex { walk, .. } => Some(walk.clone()),
-            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk.clone()),
             State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
         }
     }
@@ -193,8 +204,6 @@ impl State {
             State::DeadFrog { walk } => Some(walk),
             State::DeadFrogName { walk, .. } => Some(walk),
             State::FrogIdentified { walk, .. } => Some(walk),
-            State::FrogIdentifiedSex { walk, .. } => Some(walk),
-            State::FrogIdentifiedSexLocation { walk, .. } => Some(walk),
             State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
         }
     }
@@ -270,6 +279,7 @@ impl State {
 
     async fn poll_answer_walk_started(
         bot: Bot,
+        last_location: LastLocation,
         walk: CompleteWalk,
         dialoge: DialogueState,
         poll: Poll,
@@ -282,7 +292,11 @@ impl State {
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
                 dialoge
                     .update(State::FrogIdentified {
-                        name: name.into(),
+                        frog: PartialFrog {
+                            name: name.into(),
+                            gps_location: if_is_relevant(last_location),
+                            ..Default::default()
+                        },
                         walk,
                     })
                     .await?;
@@ -358,35 +372,40 @@ impl State {
 
     async fn frog_identified(
         bot: Bot,
-        (name, walk): (String, CompleteWalk),
+        (mut frog, walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
     ) -> anyhow::Result<()> {
-        let sex = match poll.selected() {
-            "Male" => Sex::Male,
-            "Female" => Sex::Female,
-            "Unknown" => Sex::Unknown,
-            "Use Questionaire" => {
-                dialoge
-                    .update(State::QuestionaireSex {
-                        walk,
-                        questionaire: questionaire::QuestionaireSex::new(name.clone()),
-                    })
-                    .await?;
-                questionaire::start_sex(bot, dialoge, &name).await?;
-                return Ok(());
-            }
-            _ => unreachable!(),
-        };
-        dialoge
-            .update(State::FrogIdentifiedSex { name, walk, sex })
-            .await?;
-        ask_for_location(bot, dialoge.chat_id()).await?;
+        if frog.location.is_some() {
+            State::frog_identified_sex_location(bot, (frog, walk), dialoge, poll).await?;
+        } else if frog.sex.is_some() {
+            State::frog_identified_sex(bot, (frog, walk), dialoge, poll).await?;
+        } else {
+            let sex = match poll.selected() {
+                "Male" => Sex::Male,
+                "Female" => Sex::Female,
+                "Unknown" => Sex::Unknown,
+                "Use Questionaire" => {
+                    dialoge
+                        .update(State::QuestionaireSex {
+                            walk,
+                            questionaire: questionaire::QuestionaireSex::new(frog.clone()),
+                        })
+                        .await?;
+                    questionaire::start_sex(bot, dialoge, &frog.name).await?;
+                    return Ok(());
+                }
+                _ => unreachable!(),
+            };
+            frog.sex = Some(sex);
+            dialoge.update(State::FrogIdentified { frog, walk }).await?;
+            ask_for_location(bot, dialoge.chat_id()).await?;
+        }
         Ok(())
     }
     async fn frog_identified_sex(
         bot: Bot,
-        (name, walk, sex): (String, CompleteWalk, Sex),
+        (mut frog, walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
     ) -> anyhow::Result<()> {
@@ -395,14 +414,8 @@ impl State {
             bail!("We do not really handle you unselecting something. sorry.");
         }
         let location = location as usize;
-        dialoge
-            .update(State::FrogIdentifiedSexLocation {
-                name,
-                walk,
-                sex,
-                location,
-            })
-            .await?;
+        frog.location = Some(location);
+        dialoge.update(State::FrogIdentified { frog, walk }).await?;
         bot.send_poll(
             dialoge.chat_id(),
             "Is the frog going towards water or away from it?",
@@ -414,7 +427,7 @@ impl State {
 
     async fn frog_identified_sex_location(
         bot: Bot,
-        (name, mut walk, sex, location): (String, CompleteWalk, Sex, usize),
+        (mut frog, mut walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
     ) -> anyhow::Result<()> {
@@ -422,17 +435,23 @@ impl State {
         if poll.selected_index() < 0 {
             bail!("We do not really handle you unselecting something. sorry.");
         }
-        let frog = FrogFound {
-            name,
-            sex,
-            location,
-            towards,
-            time: Local::now(),
-        };
+        frog.towards = Some(towards);
+        let frog = frog.build()?;
         walk.frogs.push(frog);
         dialoge.update(State::WalkStarted { walk }).await?;
         found_something(bot, dialoge).await?;
         Ok(())
+    }
+}
+
+fn if_is_relevant(last_location: LastLocation) -> Option<TimedLocation> {
+    let last_location = last_location.lock();
+    if last_location.latitude.is_nan() || last_location.longitude.is_nan() {
+        None
+    } else if (Local::now() - last_location.time).num_minutes() > 5 {
+        None
+    } else {
+        Some(last_location.clone())
     }
 }
 
@@ -645,6 +664,25 @@ impl GetChatId for UpdateWithSuppliedChatId {
     }
 }
 
+type LastLocation = Arc<Mutex<TimedLocation>>;
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct TimedLocation {
+    latitude: f64,
+    longitude: f64,
+    time: DateTime<Local>,
+}
+
+impl TimedLocation {
+    pub fn error() -> Self {
+        Self {
+            latitude: f64::NAN,
+            longitude: f64::NAN,
+            time: DateTime::UNIX_EPOCH.with_timezone(&Local),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(TOKEN);
@@ -725,22 +763,26 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(questionaire::found_sex),
                 )
                 .branch(
-                    dptree::case![State::FrogIdentified { name, walk }]
+                    dptree::case![State::FrogIdentified { frog, walk }]
                         .endpoint(State::frog_identified),
-                )
-                .branch(
-                    dptree::case![State::FrogIdentifiedSex { name, walk, sex }]
-                        .endpoint(State::frog_identified_sex),
-                )
-                .branch(
-                    dptree::case![State::FrogIdentifiedSexLocation {
-                        name,
-                        walk,
-                        sex,
-                        location
-                    }]
-                    .endpoint(State::frog_identified_sex_location),
                 ),
+        )
+        .branch(
+            Update::filter_edited_message()
+                .filter_map(|u: Update| {
+                    if let UpdateKind::EditedMessage(m) = u.kind {
+                        m.location().cloned()
+                    } else {
+                        None
+                    }
+                })
+                .endpoint(async |l: Location, tl: LastLocation| {
+                    let mut tl = tl.lock();
+                    tl.latitude = l.latitude;
+                    tl.longitude = l.longitude;
+                    tl.time = Local::now();
+                    Ok(())
+                }),
         );
 
     Dispatcher::builder(bot, schema)
@@ -749,7 +791,8 @@ async fn main() -> anyhow::Result<()> {
         .dependencies(dptree::deps![
             InMemStorage::<State>::new(),
             Arc::new(Mutex::<ChatId>::new(ChatId(0))),
-            Mode::create_debug()
+            Mode::create_debug(),
+            Arc::new(Mutex::new(TimedLocation::error()))
         ])
         .build()
         .dispatch()
