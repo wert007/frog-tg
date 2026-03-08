@@ -20,10 +20,36 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
 
     write_date(&mut doc, page_id, walk.start)?;
     write_weather(&mut doc, page_id, walk.weather)?;
+    write_time(&mut doc, page_id, walk.start, walk.end)?;
     // write(&mut doc, "test", 12, [10, 10], page_id)?;
 
     doc.save("output.pdf")?;
 
+    Ok(())
+}
+
+fn write_time(
+    doc: &mut Document,
+    page_id: (u32, u16),
+    start: chrono::DateTime<chrono::Local>,
+    end: Option<chrono::DateTime<chrono::Local>>,
+) -> anyhow::Result<()> {
+    write(
+        doc,
+        start.format("%H:%M").to_string(),
+        12,
+        [105, 163],
+        page_id,
+    )?;
+    if let Some(end) = end {
+        write(
+            doc,
+            end.format("%H:%M").to_string(),
+            12,
+            [105, 178],
+            page_id,
+        )?;
+    }
     Ok(())
 }
 
