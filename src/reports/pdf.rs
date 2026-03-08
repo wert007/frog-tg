@@ -21,7 +21,6 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     write_date(&mut doc, page_id, walk.start)?;
     write_weather(&mut doc, page_id, walk.weather)?;
     write_time(&mut doc, page_id, walk.start, walk.end)?;
-    // write(&mut doc, "test", 12, [10, 10], page_id)?;
 
     doc.save("output.pdf")?;
 
@@ -60,12 +59,12 @@ fn write_weather(
 ) -> anyhow::Result<()> {
     let temp = if let Some(end) = weather.temperature_end {
         if (end - weather.temperature_start) > 3.0 {
-            format!("{} C-{} C", weather.temperature_start, end)
+            format!("{}°C-{}°C", weather.temperature_start, end)
         } else {
-            format!("{} C", weather.temperature_start)
+            format!("{}°C", weather.temperature_start)
         }
     } else {
-        format!("{} C", weather.temperature_start)
+        format!("{}°C", weather.temperature_start)
     };
     write(doc, temp, 12, [290, 129], page_id)?;
     write(
@@ -133,7 +132,8 @@ fn write(
     let content = Content {
         operations: vec![
             Operation::new("BT", vec![]),
-            Operation::new("Tf", vec!["default".into(), size.into()]), // font + size
+            // font + size
+            Operation::new("Tf", vec!["default".into(), size.into()]),
             Operation::new(
                 "Tm",
                 vec![
@@ -145,8 +145,12 @@ fn write(
                     position[1].into(),
                 ],
             ),
-            // Operation::new("Td", vec![10.into(), 10.into()]),        // x,y position
-            Operation::new("Tj", vec![Object::string_literal(text.as_ref())]),
+            Operation::new(
+                "Tj",
+                vec![Object::string_literal(
+                    encoding_rs::WINDOWS_1252.encode(text.as_ref()).0.to_vec(),
+                )],
+            ),
             Operation::new("ET", vec![]),
         ],
     };
