@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use chrono::Timelike;
 use lopdf::{
     Document, FontData, Object, Stream,
     content::{Content, Operation},
@@ -48,6 +49,11 @@ fn write_time(
             [105, 178],
             page_id,
         )?;
+    }
+    if start.hour() <= 12 {
+        draw_line(doc, page_id, [58, 365], [58, 405], 2)?;
+    } else {
+        draw_line(doc, page_id, [58, 420], [58, 445], 2)?;
     }
     Ok(())
 }
@@ -180,5 +186,46 @@ fn write(
             }
         }
     }
+    Ok(())
+}
+
+fn draw_line(
+    doc: &mut Document,
+    page_id: (u32, u16),
+    from: [i32; 2],
+    to: [i32; 2],
+    width: i32,
+) -> anyhow::Result<()> {
+    let content = Content {
+        operations: vec![
+            Operation::new("q", vec![]), // save graphics state
+            Operation::new("w", vec![width.into()]),
+            Operation::new("m", vec![from[0].into(), from[1].into()]), // move to
+            Operation::new("l", vec![to[0].into(), to[1].into()]),     // line to
+            Operation::new("S", vec![]),                               // stroke line
+            Operation::new("Q", vec![]),                               // restore graphics state
+        ],
+    };
+
+    let stream = Stream::new(dictionary! {}, content.encode()?);
+    let content_id = doc.add_object(stream);
+
+    let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
+
+    match page.get_mut(b"Contents") {
+        Ok(Object::Reference(existing)) => {
+            let existing = *existing;
+            page.set(
+                "Contents",
+                Object::Array(vec![
+                    Object::Reference(existing),
+                    Object::Reference(content_id),
+                ]),
+            );
+        }
+        Ok(Object::Array(arr)) => arr.push(Object::Reference(content_id)),
+        _ => page.set("Contents", content_id),
+    }
+
     Ok(())
 }
