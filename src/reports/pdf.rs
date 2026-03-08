@@ -1,5 +1,5 @@
 use lopdf::{
-    FontData, Object, Stream,
+    Document, FontData, Object, Stream,
     content::{Content, Operation},
     dictionary,
 };
@@ -16,10 +16,39 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     let pages = doc.get_pages();
     let page_id = *pages.get(&1).unwrap();
 
+    write_date(&mut doc, page_id, walk.start)?;
+    // write(&mut doc, "test", 12, [10, 10], page_id)?;
+
+    doc.save("output.pdf")?;
+
+    Ok(())
+}
+
+fn write_date(
+    doc: &mut Document,
+    page_id: (u32, u16),
+    start: chrono::DateTime<chrono::Local>,
+) -> anyhow::Result<()> {
+    write(
+        doc,
+        start.format("%d.%m.%Y").to_string(),
+        12,
+        [100, 130],
+        page_id,
+    )
+}
+
+fn write(
+    doc: &mut Document,
+    text: impl AsRef<str>,
+    size: i32,
+    position: [i32; 2],
+    page_id: (u32, u16),
+) -> anyhow::Result<()> {
     let content = Content {
         operations: vec![
             Operation::new("BT", vec![]),
-            Operation::new("Tf", vec!["default".into(), 24.into()]), // font + size
+            Operation::new("Tf", vec!["default".into(), size.into()]), // font + size
             Operation::new(
                 "Tm",
                 vec![
@@ -27,12 +56,12 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
                     0.into(),
                     0.into(),
                     (-1).into(),
-                    100.into(),
-                    500.into(),
+                    position[0].into(),
+                    position[1].into(),
                 ],
             ),
             // Operation::new("Td", vec![10.into(), 10.into()]),        // x,y position
-            Operation::new("Tj", vec![Object::string_literal("Filled with Rust")]),
+            Operation::new("Tj", vec![Object::string_literal(text.as_ref())]),
             Operation::new("ET", vec![]),
         ],
     };
@@ -62,8 +91,5 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
             }
         }
     }
-
-    doc.save("output.pdf")?;
-
     Ok(())
 }
