@@ -12,7 +12,7 @@ use crate::{CompleteWalk, FrogFound, weather::WeatherStats};
 const FONT: &[u8] = include_bytes!("../../assets/fonts/Coolvetica Rg.otf");
 const TEMPLATE: &[u8] = include_bytes!("../../assets/template.pdf");
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 struct FrogCountSpeciesLocation {
     male: usize,
     female: usize,
@@ -26,9 +26,13 @@ impl FrogCountSpeciesLocation {
             crate::Sex::Unknown => self.unknown += 1,
         }
     }
+
+    fn total(&self) -> usize {
+        self.male + self.female + self.unknown
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 struct FrogCountSpecies {
     towards: [FrogCountSpeciesLocation; 2],
     backwards: [FrogCountSpeciesLocation; 2],
@@ -40,6 +44,29 @@ impl FrogCountSpecies {
         } else {
             self.backwards[frog.location].update(frog);
         }
+    }
+
+    fn total(&self) -> FrogCountSpeciesLocation {
+        FrogCountSpeciesLocation {
+            male: self.total_male(),
+            female: self.total_female(),
+            unknown: self.total_unknown(),
+        }
+    }
+
+    fn total_male(&self) -> usize {
+        self.towards.map(|t| t.male).iter().sum::<usize>()
+            + self.backwards.map(|b| b.male).iter().sum::<usize>()
+    }
+
+    fn total_female(&self) -> usize {
+        self.towards.map(|t| t.female).iter().sum::<usize>()
+            + self.backwards.map(|b| b.female).iter().sum::<usize>()
+    }
+
+    fn total_unknown(&self) -> usize {
+        self.towards.map(|t| t.unknown).iter().sum::<usize>()
+            + self.backwards.map(|b| b.unknown).iter().sum::<usize>()
     }
 }
 
@@ -64,6 +91,7 @@ impl FrogCount {
     fn fill_in(&self, doc: &mut Document, page_id: (u32, u16)) -> anyhow::Result<()> {
         for (species, count) in &self.species {
             let position = position_from_species(&species);
+            let total_frog_count = count.total();
             for i in 0..2 {
                 write(
                     doc,
@@ -118,8 +146,44 @@ impl FrogCount {
                     page_id,
                 )?;
             }
+            // write(
+            //     doc,
+            //     sum_to_text(total_frog_count.male),
+            //     12,
+            //     add(position, OFFSET_MALE, OFFSET_SUM, [0; 2]),
+            //     page_id,
+            // )?;
+            // write(
+            //     doc,
+            //     sum_to_text(total_frog_count.female),
+            //     12,
+            //     add(position, OFFSET_FEMALE, OFFSET_SUM, [0; 2]),
+            //     page_id,
+            // )?;
+            // write(
+            //     doc,
+            //     sum_to_text(total_frog_count.unknown),
+            //     12,
+            //     add(position, OFFSET_UNKNOWN, OFFSET_SUM, [0; 2]),
+            //     page_id,
+            // )?;
+            write(
+                doc,
+                sum_to_text(total_frog_count.total()),
+                12,
+                add(position, [0; 2], OFFSET_SUM, [0; 2]),
+                page_id,
+            )?;
         }
         Ok(())
+    }
+}
+
+fn sum_to_text(count: usize) -> String {
+    if count == 0 {
+        String::new()
+    } else {
+        count.to_string()
     }
 }
 
@@ -168,6 +232,7 @@ const OFFSET_UNKNOWN: [i32; 2] = [140, 0];
 const OFFSET_TOWARDS: [i32; 2] = [0, 0];
 const OFFSET_BACKWARDS: [i32; 2] = [0, 35];
 const OFFSET_LOCATION: [[i32; 2]; 2] = [[0, 0], [0, 70]];
+const OFFSET_SUM: [i32; 2] = [0, 201];
 
 fn add(
     position: [i32; 2],
