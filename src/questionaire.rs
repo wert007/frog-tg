@@ -1,7 +1,7 @@
 use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::InputPollOption};
 
-use crate::{CompleteWalk, PollExt, Sex, State, ask_for_location, ask_sex};
+use crate::{CompleteWalk, PartialFrog, PollExt, Sex, State, ask_for_location, ask_sex};
 
 mod sex;
 
@@ -18,12 +18,12 @@ pub struct QuestionaireFrogName {
 }
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireSex {
-    pub name: String,
+    pub frog: PartialFrog,
     pub result: Option<Sex>,
 }
 impl QuestionaireSex {
-    pub(crate) fn new(name: String) -> Self {
-        Self { name, result: None }
+    pub(crate) fn new(frog: PartialFrog) -> Self {
+        Self { frog, result: None }
     }
 }
 
@@ -133,7 +133,10 @@ pub(crate) async fn found_frog_name(
     };
     dialoge
         .update(State::FrogIdentified {
-            name: name.into(),
+            frog: crate::PartialFrog {
+                name: name.into(),
+                ..Default::default()
+            },
             walk,
         })
         .await?;
@@ -163,11 +166,11 @@ pub(crate) async fn start_sex(
 pub(crate) async fn found_sex(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
-    (walk, questionaire): (CompleteWalk, QuestionaireSex),
+    (walk, mut questionaire): (CompleteWalk, QuestionaireSex),
     poll: Poll,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
-    let sex = match questionaire.name.as_str() {
+    let sex = match questionaire.frog.name.as_str() {
         "Erdkröte" => sex::erdkroete_answered(poll).await,
         "Knoblauchkröte" => sex::knoblauchkroete_answered(poll).await,
         "Springfrosch" => sex::springfrosch_answered(poll).await,
@@ -177,13 +180,13 @@ pub(crate) async fn found_sex(
         "Teichmolch" => sex::teichmolch_answered(poll).await,
         "Bergmolch" => sex::bergmolch_answered(poll).await,
         "Kammmolch" => sex::kammmolch_answered(poll).await,
-        _ => bail!("Unhandled species {}!", questionaire.name),
+        _ => bail!("Unhandled species {}!", questionaire.frog.name),
     }?;
+    questionaire.frog.sex = Some(sex);
     dialoge
-        .update(State::FrogIdentifiedSex {
-            name: questionaire.name,
+        .update(State::FrogIdentified {
+            frog: questionaire.frog,
             walk,
-            sex,
         })
         .await?;
     ask_for_location(bot, chat_id).await?;
