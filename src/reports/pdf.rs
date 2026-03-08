@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 use chrono::Timelike;
 use lopdf::{
@@ -7,10 +7,147 @@ use lopdf::{
     dictionary,
 };
 
-use crate::{CompleteWalk, weather::WeatherStats};
+use crate::{CompleteWalk, FrogFound, weather::WeatherStats};
 
 const FONT: &[u8] = include_bytes!("../../assets/fonts/Coolvetica Rg.otf");
 const TEMPLATE: &[u8] = include_bytes!("../../assets/template.pdf");
+
+#[derive(Debug, Default)]
+struct FrogCountSpeciesLocation {
+    male: usize,
+    female: usize,
+    unknown: usize,
+}
+impl FrogCountSpeciesLocation {
+    fn update(&mut self, frog: &FrogFound) {
+        match frog.sex {
+            crate::Sex::Male => self.male += 1,
+            crate::Sex::Female => self.female += 1,
+            crate::Sex::Unknown => self.unknown += 1,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct FrogCountSpecies {
+    towards: [FrogCountSpeciesLocation; 2],
+    backwards: [FrogCountSpeciesLocation; 2],
+}
+impl FrogCountSpecies {
+    fn update(&mut self, frog: &FrogFound) {
+        if frog.towards {
+            self.towards[frog.location].update(frog);
+        } else {
+            self.backwards[frog.location].update(frog);
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct FrogCount {
+    species: HashMap<String, FrogCountSpecies>,
+}
+
+impl FrogCount {
+    fn new(frogs: &[FrogFound]) -> Self {
+        let mut result = Self::default();
+        for frog in frogs {
+            result
+                .species
+                .entry(frog.name.clone())
+                .or_default()
+                .update(frog);
+        }
+        result
+    }
+
+    fn fill_in(&self, doc: &mut Document, page_id: (u32, u16)) -> anyhow::Result<()> {
+        for (species, count) in &self.species {
+            let position = position_from_species(&species);
+            for i in 0..2 {
+                write(
+                    doc,
+                    count.towards[i].male.to_string(),
+                    12,
+                    add(position, OFFSET_MALE, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
+                    page_id,
+                )?;
+                write(
+                    doc,
+                    count.towards[i].female.to_string(),
+                    12,
+                    add(position, OFFSET_FEMALE, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
+                    page_id,
+                )?;
+                write(
+                    doc,
+                    count.towards[i].unknown.to_string(),
+                    12,
+                    add(position, OFFSET_UNKNOWN, OFFSET_TOWARDS, OFFSET_LOCATION[i]),
+                    page_id,
+                )?;
+                write(
+                    doc,
+                    count.backwards[i].male.to_string(),
+                    12,
+                    add(position, OFFSET_MALE, OFFSET_BACKWARDS, OFFSET_LOCATION[i]),
+                    page_id,
+                )?;
+                write(
+                    doc,
+                    count.backwards[i].female.to_string(),
+                    12,
+                    add(
+                        position,
+                        OFFSET_FEMALE,
+                        OFFSET_BACKWARDS,
+                        OFFSET_LOCATION[i],
+                    ),
+                    page_id,
+                )?;
+                write(
+                    doc,
+                    count.backwards[i].unknown.to_string(),
+                    12,
+                    add(
+                        position,
+                        OFFSET_UNKNOWN,
+                        OFFSET_BACKWARDS,
+                        OFFSET_LOCATION[i],
+                    ),
+                    page_id,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+const OFFSET_MALE: [i32; 2] = [0, 0];
+const OFFSET_FEMALE: [i32; 2] = [70, 0];
+const OFFSET_UNKNOWN: [i32; 2] = [140, 0];
+const OFFSET_TOWARDS: [i32; 2] = [0, 0];
+const OFFSET_BACKWARDS: [i32; 2] = [0, 35];
+const OFFSET_LOCATION: [[i32; 2]; 2] = [[0, 0], [0, 70]];
+
+fn add(
+    position: [i32; 2],
+    offset_male: [i32; 2],
+    offset_towards: [i32; 2],
+    offset_location: [i32; 2],
+) -> [i32; 2] {
+    [
+        position[0] + offset_male[0] + offset_towards[0] + offset_location[0],
+        position[1] + offset_male[1] + offset_towards[1] + offset_location[1],
+    ]
+}
+
+fn position_from_species(species: &str) -> [i32; 2] {
+    match species {
+        "Erdkröte" => [225, 210],
+        _ => [400, 500],
+    }
+}
 
 pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     let mut doc = lopdf::Document::load_mem(TEMPLATE)?;
@@ -22,6 +159,9 @@ pub fn create_pdf_report(walk: &CompleteWalk) -> anyhow::Result<()> {
     write_date(&mut doc, page_id, walk.start)?;
     write_weather(&mut doc, page_id, walk.weather)?;
     write_time(&mut doc, page_id, walk.start, walk.end)?;
+
+    let frog_count = FrogCount::new(&walk.frogs);
+    frog_count.fill_in(&mut doc, page_id)?;
 
     doc.save("output.pdf")?;
 
