@@ -139,7 +139,26 @@ fn to_text(species: &str, count: usize) -> String {
             "/".into()
         }
     } else {
-        String::new()
+        if count > 0 {
+            match species {
+                "Kröte" => format!("{count} Kr"),
+                "Frosch" => format!("{count} Fr"),
+                "Molch" => format!("{count} M"),
+                "Erdkröte" => format!("{count} EKr"),
+                "Knoblauchkröte" => format!("{count} KnKr"),
+                "Grasfrosch" => format!("{count} GFr"),
+                "Springfrosch" => format!("{count} SFr"),
+                "Grünfrosch" => format!("{count} GrFr"),
+                "Laubfrosch" => format!("{count} LFr"),
+                "Teichmolch" => format!("{count} TM"),
+                "Bergmolch" => format!("{count} BM"),
+                "Kammmolch" => format!("{count} KM"),
+                "Feuersalamander" => format!("{count} FS"),
+                unknown => format!("{count} {unknown}"),
+            }
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -169,7 +188,7 @@ fn position_from_species(species: &str) -> [i32; 2] {
         "Teichmolch" => [225, 490],
         "Bergmolch" => [435, 490],
         "Kammmolch" => [645, 490],
-        _ => [645, 210],
+        _ => [625, 210],
     }
 }
 
