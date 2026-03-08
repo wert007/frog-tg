@@ -145,7 +145,11 @@ fn add(
 fn position_from_species(species: &str) -> [i32; 2] {
     match species {
         "Erdkröte" => [225, 210],
-        _ => [400, 500],
+        "Grasfrosch" => [435, 210],
+        "Teichmolch" => [225, 490],
+        "Bergmolch" => [435, 490],
+        "Kammmolch" => [645, 490],
+        _ => [645, 210],
     }
 }
 
