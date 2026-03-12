@@ -2,8 +2,7 @@ use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::InputPollOption};
 
 use crate::{
-    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, ask_for_location, ask_sex,
-    if_is_relevant,
+    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, if_is_relevant, polls::Question,
 };
 
 mod sex;
@@ -135,6 +134,9 @@ pub(crate) async fn found_frog_name(
         (Species::Frog, 3) => bail!("TODO"),
         (_, _) => unreachable!(),
     };
+    let last_message_id = Question::AskForSex(name.into())
+        .ask(bot, dialoge.chat_id())
+        .await?;
     dialoge
         .update(State::FrogIdentified {
             frog: crate::PartialFrog {
@@ -143,9 +145,9 @@ pub(crate) async fn found_frog_name(
                 ..Default::default()
             },
             walk,
+            last_message_id,
         })
         .await?;
-    ask_sex(bot, name, dialoge.chat_id()).await?;
     Ok(())
 }
 
@@ -188,12 +190,13 @@ pub(crate) async fn found_sex(
         _ => bail!("Unhandled species {}!", questionaire.frog.name),
     }?;
     questionaire.frog.sex = Some(sex);
+    let last_message_id = Question::WhereAreYou.ask(bot, chat_id).await?;
     dialoge
         .update(State::FrogIdentified {
             frog: questionaire.frog,
             walk,
+            last_message_id,
         })
         .await?;
-    ask_for_location(bot, chat_id).await?;
     Ok(())
 }

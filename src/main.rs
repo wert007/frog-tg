@@ -8,15 +8,17 @@ use teloxide::{
     prelude::*,
     types::{
         InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputPollOption, Location,
-        ReplyMarkup, UpdateKind,
+        MessageId, UpdateKind,
     },
 };
 
 use crate::{
+    polls::Question,
     questionaire::QuestionaireFrogName,
     weather::{BotWeatherExt, WeatherStats},
 };
 
+mod polls;
 mod questionaire;
 mod reports;
 mod weather;
@@ -191,6 +193,7 @@ pub enum State {
     FrogIdentified {
         frog: PartialFrog,
         walk: CompleteWalk,
+        last_message_id: MessageId,
     },
     EnterTemperature {
         is_start: bool,
@@ -310,6 +313,9 @@ impl State {
                 end_walk(bot, walk, dialoge, mode).await?;
             }
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
+                let last_message_id = Question::AskForSex(name.into())
+                    .ask(bot, dialoge.chat_id())
+                    .await?;
                 dialoge
                     .update(State::FrogIdentified {
                         frog: PartialFrog {
@@ -318,9 +324,9 @@ impl State {
                             ..Default::default()
                         },
                         walk,
+                        last_message_id,
                     })
                     .await?;
-                ask_sex(bot, name, dialoge.chat_id()).await?;
             }
             "Found Something" => {
                 dialoge
@@ -332,20 +338,7 @@ impl State {
                 questionaire::start(bot, dialoge).await?;
             }
             "Dead Frog :(" => {
-                bot.send_poll(
-                    dialoge.chat_id(),
-                    "Can you still recognize what it was?",
-                    [
-                        "No",
-                        "Erdkröte",
-                        "Grasfrosch",
-                        "Teichmolch",
-                        "Bergmolch",
-                        "Kammmolch",
-                    ]
-                    .map(InputPollOption::new),
-                )
-                .await?;
+                Question::FoundDeadFrog.ask(bot, dialoge.chat_id()).await?;
                 dialoge.update(State::DeadFrog { walk }).await?;
             }
             _ => bail!("TODO"),
@@ -364,7 +357,7 @@ impl State {
             name => Some(name.to_string()),
         };
         dialoge.update(State::DeadFrogName { walk, name }).await?;
-        ask_for_location(bot, dialoge.chat_id()).await?;
+        Question::WhereAreYou.ask(bot, dialoge.chat_id()).await?;
         Ok(())
     }
 
@@ -386,16 +379,32 @@ impl State {
             time: Local::now(),
         });
         dialoge.update(State::WalkStarted { walk }).await?;
-        found_something(bot, dialoge).await?;
+        Question::FoundSomething.ask(bot, dialoge.chat_id()).await?;
         Ok(())
     }
 
     async fn frog_identified(
         bot: Bot,
-        (mut frog, walk): (PartialFrog, CompleteWalk),
+        (mut frog, walk, last_message_id): (PartialFrog, CompleteWalk, MessageId),
         dialoge: DialogueState,
         poll: Poll,
     ) -> anyhow::Result<()> {
+        if poll.selected_index() < 0
+            && let Some(q) = Question::find_original(&poll.question)
+        {
+            match q {
+                Question::FoundSomething => {
+                    dialoge.update(State::WalkStarted { walk }).await?;
+                }
+                Question::FoundDeadFrog => unreachable!("I think this is unreachable"),
+                Question::WhereIsFrogHeaded => frog.towards = None,
+                Question::WhereAreYou => frog.location = None,
+                Question::AskForSex(_) => frog.sex = None,
+            }
+            bot.delete_message(dialoge.chat_id(), last_message_id)
+                .await?;
+            return Ok(());
+        }
         if frog.location.is_some() {
             State::frog_identified_sex_location(bot, (frog, walk), dialoge, poll).await?;
         } else if frog.sex.is_some() {
@@ -418,8 +427,14 @@ impl State {
                 _ => unreachable!(),
             };
             frog.sex = Some(sex);
-            dialoge.update(State::FrogIdentified { frog, walk }).await?;
-            ask_for_location(bot, dialoge.chat_id()).await?;
+            let last_message_id = Question::WhereAreYou.ask(bot, dialoge.chat_id()).await?;
+            dialoge
+                .update(State::FrogIdentified {
+                    frog,
+                    walk,
+                    last_message_id,
+                })
+                .await?;
         }
         Ok(())
     }
@@ -435,13 +450,16 @@ impl State {
         }
         let location = location as usize;
         frog.location = Some(location);
-        dialoge.update(State::FrogIdentified { frog, walk }).await?;
-        bot.send_poll(
-            dialoge.chat_id(),
-            "Is the frog going towards water or away from it?",
-            ["Towards water", "Back from water"].map(InputPollOption::new),
-        )
-        .await?;
+        let last_message_id = Question::WhereIsFrogHeaded
+            .ask(bot, dialoge.chat_id())
+            .await?;
+        dialoge
+            .update(State::FrogIdentified {
+                frog,
+                walk,
+                last_message_id,
+            })
+            .await?;
         Ok(())
     }
 
@@ -481,31 +499,6 @@ fn if_is_relevant(last_location: LastLocation) -> Option<TimedLocation> {
     }
 }
 
-async fn ask_for_location(bot: Bot, chat_id: ChatId) -> Result<(), anyhow::Error> {
-    let locations: Vec<InputPollOption> = include_str!("../locations.txt")
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(InputPollOption::new)
-        .collect();
-    // TODO: This is probably only changing slowly and not all the time. Can we
-    // easily remember the last choice?
-    bot.send_poll(chat_id, "Where are you right now?", locations)
-        .await?;
-    Ok(())
-}
-
-async fn found_something(
-    bot: Bot,
-    dialoge: Dialogue<State, InMemStorage<State>>,
-) -> Result<(), anyhow::Error> {
-    bot.send_poll(dialoge.chat_id(),
-    "Amazing, your walk has been started. When something happens, select one of these options to continue or finish your walk.",
-    ["Found Something", "Dead Frog :(", "Erdkröte", "Grasfrosch", "Teichmolch", "Bergmolch", "Kammmolch", "End"].map(InputPollOption::new))
-    .await
-    .context("Sending possible next steps via tg poll to user")?;
-    Ok(())
-}
-
 async fn weather_change_requested(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
@@ -525,7 +518,7 @@ async fn weather_change_requested(
         }
         Some("found:next") => {
             bot.answer_callback_query(cb.id).await?;
-            found_something(bot, dialoge).await?;
+            Question::FoundSomething.ask(bot, dialoge.chat_id()).await?;
             return Ok(());
         }
         Some("weather:wind-0") => {
@@ -644,16 +637,6 @@ async fn weather_change_requested(
     Ok(())
 }
 
-async fn ask_sex(bot: Bot, name: &str, chat_id: ChatId) -> anyhow::Result<()> {
-    bot.send_poll(
-        chat_id,
-        format!("Enter the sex of your {name} now:"),
-        ["Male", "Female", "Unknown", "Use Questionaire"].map(InputPollOption::new),
-    )
-    .await?;
-    Ok(())
-}
-
 async fn end_walk(
     bot: Bot,
     mut walk: CompleteWalk,
@@ -759,7 +742,12 @@ async fn main() -> anyhow::Result<()> {
                             .then(|| s.as_walk())
                             .flatten()
                     })
-                    .endpoint(|bot, dialoge| found_something(bot, dialoge)),
+                    .endpoint(async |bot, dialoge: DialogueState| {
+                        Question::FoundSomething
+                            .ask(bot, dialoge.chat_id())
+                            .await
+                            .map(|_| ())
+                    }),
                 )
                 .branch(
                     dptree::filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/realfrogs"))
@@ -819,8 +807,12 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(questionaire::found_sex),
                 )
                 .branch(
-                    dptree::case![State::FrogIdentified { frog, walk }]
-                        .endpoint(State::frog_identified),
+                    dptree::case![State::FrogIdentified {
+                        frog,
+                        walk,
+                        last_message_id
+                    }]
+                    .endpoint(State::frog_identified),
                 ),
         )
         .branch(
