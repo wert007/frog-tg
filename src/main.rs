@@ -631,7 +631,7 @@ async fn end_walk(
         format!(
             "You finished your walk. You've been at it for {}:{:02} h. {inline_report}\n\nWhenever you want to /start a new walk, I'm ready.",
             duration.num_hours(),
-            duration.num_minutes(),
+            duration.num_minutes() % 60,
         ),
     )
     .await?;
