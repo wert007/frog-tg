@@ -6,7 +6,10 @@ use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
     prelude::*,
-    types::{InputFile, InputPollOption, Location, UpdateKind},
+    types::{
+        InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputPollOption, Location,
+        ReplyMarkup, UpdateKind,
+    },
 };
 
 use crate::{
@@ -54,6 +57,16 @@ pub enum Sex {
     Unknown,
 }
 
+impl Sex {
+    fn as_emoji(&self) -> char {
+        match self {
+            Sex::Male => '♂',
+            Sex::Female => '♀',
+            Sex::Unknown => '?',
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct FrogFound {
     name: String,
@@ -62,6 +75,11 @@ pub struct FrogFound {
     towards: bool,
     time: DateTime<Local>,
     gps_location: Option<TimedLocation>,
+}
+impl FrogFound {
+    fn to_message(&self) -> String {
+        format!("{} ({})", self.name, self.sex.as_emoji())
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -79,6 +97,7 @@ pub struct CompleteWalk {
     weather: WeatherStats,
     frogs: Vec<FrogFound>,
     dead_frogs: Vec<DeadFrog>,
+    repeats: usize,
 }
 impl CompleteWalk {
     async fn start() -> anyhow::Result<Self> {
@@ -90,6 +109,7 @@ impl CompleteWalk {
                 .context("Starting a new walk")?,
             frogs: Vec::new(),
             dead_frogs: Vec::new(),
+            repeats: 0,
         })
     }
 }
@@ -437,9 +457,15 @@ impl State {
         }
         frog.towards = Some(towards);
         let frog = frog.build()?;
+        bot.send_message(dialoge.chat_id(), format!("Found {}", frog.to_message()))
+            .reply_markup(InlineKeyboardMarkup::new([
+                [InlineKeyboardButton::callback("Repeat", "found:repeat")],
+                [InlineKeyboardButton::callback("Find", "found:next")],
+            ]))
+            .await?;
         walk.frogs.push(frog);
+        walk.repeats = 1;
         dialoge.update(State::WalkStarted { walk }).await?;
-        found_something(bot, dialoge).await?;
         Ok(())
     }
 }
@@ -486,9 +512,22 @@ async fn weather_change_requested(
     cb: CallbackQuery,
 ) -> anyhow::Result<()> {
     let mut state = dialoge.get_or_default().await?;
-    let weather = &mut state.as_walk_mut().unwrap().weather;
+    let walk = state.as_walk_mut().unwrap();
+    let weather = &mut walk.weather;
     let before = *weather;
+    let mut is_repeat = false;
     match cb.data.as_ref().map(|s| s.as_str()) {
+        Some("found:repeat") => {
+            let mut frog = walk.frogs.last().unwrap().clone();
+            frog.time = Local::now();
+            walk.frogs.push(frog);
+            is_repeat = true;
+        }
+        Some("found:next") => {
+            bot.answer_callback_query(cb.id).await?;
+            found_something(bot, dialoge).await?;
+            return Ok(());
+        }
         Some("weather:wind-0") => {
             weather.wind_beaufort = weather::Beaufort::Zero;
         }
@@ -583,6 +622,23 @@ async fn weather_change_requested(
         let m = bot.edit_message_text(dialoge.chat_id(), message_id, weather.as_message());
         m.reply_markup(WeatherStats::default_weather_keyboard_markup())
             .await?;
+        dialoge.update(state).await?;
+    } else if is_repeat {
+        walk.repeats += 1;
+        bot.edit_message_text(
+            dialoge.chat_id(),
+            message_id,
+            format!(
+                "Found {} x {} ",
+                walk.repeats,
+                walk.frogs.last().unwrap().to_message(),
+            ),
+        )
+        .reply_markup(InlineKeyboardMarkup::new([
+            [InlineKeyboardButton::callback("Repeat", "found:repeat")],
+            [InlineKeyboardButton::callback("Find", "found:next")],
+        ]))
+        .await?;
         dialoge.update(state).await?;
     }
     Ok(())
