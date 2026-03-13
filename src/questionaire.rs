@@ -1,8 +1,9 @@
 use anyhow::bail;
-use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::InputPollOption};
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::MessageId};
 
 use crate::{
-    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, if_is_relevant, polls::Question,
+    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, if_is_relevant,
+    polls::{MainQuestion, QuestionaireQuestion},
 };
 
 mod sex;
@@ -16,8 +17,19 @@ pub enum Species {
 
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireFrogName {
+    pub last_message_id: MessageId,
     pub species: Option<Species>,
 }
+
+impl QuestionaireFrogName {
+    pub fn new(last_message_id: MessageId) -> Self {
+        Self {
+            last_message_id,
+            species: None,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireSex {
     pub frog: PartialFrog,
@@ -27,25 +39,6 @@ impl QuestionaireSex {
     pub(crate) fn new(frog: PartialFrog) -> Self {
         Self { frog, result: None }
     }
-}
-
-pub(crate) async fn start(
-    bot: Bot,
-    dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
-) -> anyhow::Result<()> {
-    bot.send_poll(
-        dialoge.chat_id(),
-        "Is it a frog, toad or a Molch?",
-        [
-            "Molch (Has Tail)",
-            "Toad (Has Wards)",
-            "Frog (No Wards)",
-            "Unsure",
-        ]
-        .map(InputPollOption::new),
-    )
-    .await?;
-    Ok(())
 }
 
 pub(crate) async fn found_species(
@@ -59,52 +52,22 @@ pub(crate) async fn found_species(
         "Toad (Has Wards)" => Species::Toad,
         "Frog (No Wards)" => Species::Frog,
         "Unsure" => bail!("TODO"),
+        "" => {
+            dialoge.update(State::WalkStarted { walk }).await?;
+            return Ok(());
+        }
         _ => unreachable!(),
     };
     questionaire.species = Some(species);
+    let question = match species {
+        Species::Molch => QuestionaireQuestion::ItIsAMolch,
+        Species::Frog => QuestionaireQuestion::ItIsAFrog,
+        Species::Toad => QuestionaireQuestion::ItIsAToad,
+    };
+    questionaire.last_message_id = question.ask(bot, dialoge.chat_id()).await?;
     dialoge
         .update(State::QuestionaireFrogName { walk, questionaire })
         .await?;
-    let (question, options): (&'static str, &'static [&'static str]) = match species {
-        Species::Molch => (
-            "Check its skin now!",
-            &[
-                "There are white dots",
-                "No dark markings on the bottom side",
-                "Otherwise it is a Teichmolch",
-                "Unsure",
-            ],
-        ),
-        Species::Frog => (
-            "Check its Skin and its Nose!",
-            &[
-                "It has markings on its back",
-                "Its nose is pointy",
-                "Its nose is more stump",
-                "Unsure",
-            ],
-        ),
-        Species::Toad => (
-            "Check its Skin now!",
-            &[
-                "Has markings on its back",
-                "Red marks",
-                "Has dark markings",
-                "Has a lot of wards",
-                "Unsure",
-            ],
-        ),
-    };
-    bot.send_poll(
-        dialoge.chat_id(),
-        question,
-        options
-            .into_iter()
-            .copied()
-            .map(InputPollOption::new)
-            .collect::<Vec<_>>(),
-    )
-    .await?;
     Ok(())
 }
 
@@ -121,20 +84,25 @@ pub(crate) async fn found_frog_name(
             .expect("Can only go here, if we have a species"),
         poll.selected_index(),
     ) {
+        (_, -1) => {
+            bot.delete_message(dialoge.chat_id(), questionaire.last_message_id)
+                .await?;
+            return Ok(());
+        }
         (Species::Molch, 0) => "Kammmolch",
         (Species::Molch, 1) => "Bergmolch",
         (Species::Molch, 2) => "Teichmolch",
-        (Species::Molch, 3) => bail!("TODO"),
+        (Species::Molch, 3) => "Molch",
         (Species::Toad, 0 | 1) => "Knoblauchkröte",
         (Species::Toad, 2 | 3) => "Erdkröte",
-        (Species::Toad, 4) => bail!("TODO"),
+        (Species::Toad, 4) => "Kröte",
         (Species::Frog, 0) => "Grünfrosch",
         (Species::Frog, 1) => "Springfrosch",
         (Species::Frog, 2) => "Grasfrosch",
-        (Species::Frog, 3) => bail!("TODO"),
+        (Species::Frog, 3) => "Frosch",
         (_, _) => unreachable!(),
     };
-    let last_message_id = Question::AskForSex(name.into())
+    let last_message_id = MainQuestion::AskForSex(name.into())
         .ask(bot, dialoge.chat_id())
         .await?;
     dialoge
@@ -190,7 +158,7 @@ pub(crate) async fn found_sex(
         _ => bail!("Unhandled species {}!", questionaire.frog.name),
     }?;
     questionaire.frog.sex = Some(sex);
-    let last_message_id = Question::WhereAreYou.ask(bot, chat_id).await?;
+    let last_message_id = MainQuestion::WhereAreYou.ask(bot, chat_id).await?;
     dialoge
         .update(State::FrogIdentified {
             frog: questionaire.frog,

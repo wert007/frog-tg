@@ -13,7 +13,7 @@ use teloxide::{
 };
 
 use crate::{
-    polls::Question,
+    polls::{MainQuestion, QuestionaireQuestion},
     questionaire::QuestionaireFrogName,
     weather::{BotWeatherExt, WeatherStats},
 };
@@ -314,7 +314,7 @@ impl State {
                 end_walk(bot, walk, dialoge, mode).await?;
             }
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
-                let last_message_id = Question::AskForSex(name.into())
+                let last_message_id = MainQuestion::AskForSex(name.into())
                     .ask(bot, dialoge.chat_id())
                     .await?;
                 dialoge
@@ -330,16 +330,20 @@ impl State {
                     .await?;
             }
             "Found Something" => {
+                let last_message_id = QuestionaireQuestion::IsItAFrogToadOrMolch
+                    .ask(bot.clone(), dialoge.chat_id())
+                    .await?;
                 dialoge
                     .update(State::QuestionaireFrogName {
                         walk,
-                        questionaire: QuestionaireFrogName::default(),
+                        questionaire: QuestionaireFrogName::new(last_message_id),
                     })
                     .await?;
-                questionaire::start(bot, dialoge).await?;
             }
             "Dead Frog :(" => {
-                Question::FoundDeadFrog.ask(bot, dialoge.chat_id()).await?;
+                MainQuestion::FoundDeadFrog
+                    .ask(bot, dialoge.chat_id())
+                    .await?;
                 dialoge.update(State::DeadFrog { walk }).await?;
             }
             _ => bail!("TODO"),
@@ -358,7 +362,9 @@ impl State {
             name => Some(name.to_string()),
         };
         dialoge.update(State::DeadFrogName { walk, name }).await?;
-        Question::WhereAreYou.ask(bot, dialoge.chat_id()).await?;
+        MainQuestion::WhereAreYou
+            .ask(bot, dialoge.chat_id())
+            .await?;
         Ok(())
     }
 
@@ -380,7 +386,9 @@ impl State {
             time: Local::now(),
         });
         dialoge.update(State::WalkStarted { walk }).await?;
-        Question::FoundSomething.ask(bot, dialoge.chat_id()).await?;
+        MainQuestion::FoundSomething
+            .ask(bot, dialoge.chat_id())
+            .await?;
         Ok(())
     }
 
@@ -391,16 +399,16 @@ impl State {
         poll: Poll,
     ) -> anyhow::Result<()> {
         if poll.selected_index() < 0
-            && let Some(q) = Question::find_original(&poll.question)
+            && let Some(q) = MainQuestion::find_original(&poll.question)
         {
             match q {
-                Question::FoundSomething => {
+                MainQuestion::FoundSomething => {
                     dialoge.update(State::WalkStarted { walk }).await?;
                 }
-                Question::FoundDeadFrog => unreachable!("I think this is unreachable"),
-                Question::WhereIsFrogHeaded => frog.towards = None,
-                Question::WhereAreYou => frog.location = None,
-                Question::AskForSex(_) => frog.sex = None,
+                MainQuestion::FoundDeadFrog => unreachable!("I think this is unreachable"),
+                MainQuestion::WhereIsFrogHeaded => frog.towards = None,
+                MainQuestion::WhereAreYou => frog.location = None,
+                MainQuestion::AskForSex(_) => frog.sex = None,
             }
             bot.delete_message(dialoge.chat_id(), last_message_id)
                 .await?;
@@ -428,7 +436,9 @@ impl State {
                 _ => unreachable!(),
             };
             frog.sex = Some(sex);
-            let last_message_id = Question::WhereAreYou.ask(bot, dialoge.chat_id()).await?;
+            let last_message_id = MainQuestion::WhereAreYou
+                .ask(bot, dialoge.chat_id())
+                .await?;
             dialoge
                 .update(State::FrogIdentified {
                     frog,
@@ -451,7 +461,7 @@ impl State {
         }
         let location = location as usize;
         frog.location = Some(location);
-        let last_message_id = Question::WhereIsFrogHeaded
+        let last_message_id = MainQuestion::WhereIsFrogHeaded
             .ask(bot, dialoge.chat_id())
             .await?;
         dialoge
@@ -521,7 +531,9 @@ async fn weather_change_requested(
         }
         Some("found:next") => {
             bot.answer_callback_query(cb.id).await?;
-            Question::FoundSomething.ask(bot, dialoge.chat_id()).await?;
+            MainQuestion::FoundSomething
+                .ask(bot, dialoge.chat_id())
+                .await?;
             return Ok(());
         }
         Some("weather:wind-0") => {
@@ -746,7 +758,7 @@ async fn main() -> anyhow::Result<()> {
                             .flatten()
                     })
                     .endpoint(async |bot, dialoge: DialogueState| {
-                        Question::FoundSomething
+                        MainQuestion::FoundSomething
                             .ask(bot, dialoge.chat_id())
                             .await
                             .map(|_| ())
