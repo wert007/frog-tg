@@ -3,14 +3,9 @@ use std::collections::HashMap;
 use crate::FrogFound;
 
 mod img;
-mod pdf;
 
 pub fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<Vec<u8>> {
     img::create_image_report(walk)
-}
-
-pub fn create_pdf_report(walk: &crate::CompleteWalk) -> anyhow::Result<Vec<u8>> {
-    pdf::create_pdf_report(walk)
 }
 
 pub(crate) fn create_inline_end_walk_report(walk: &crate::CompleteWalk) -> String {

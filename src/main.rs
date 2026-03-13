@@ -687,11 +687,10 @@ async fn send_pdf_report_to_bot(
     chat_id: ChatId,
     walk: &CompleteWalk,
 ) -> anyhow::Result<()> {
-    let pdf = reports::create_image_report(walk)?;
+    let img = reports::create_image_report(walk)?;
     let f =
-        InputFile::memory(pdf).file_name(format!("report-{}.png", walk.start.format("%d.%m.%Y")));
+        InputFile::memory(img).file_name(format!("report-{}.png", walk.start.format("%d.%m.%Y")));
     bot.send_photo(chat_id, f).await?;
-    // bot.send_document(chat_id, f).await?;
     Ok(())
 }
 
