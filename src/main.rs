@@ -18,6 +18,7 @@ use crate::{
     weather::{BotWeatherExt, WeatherStats},
 };
 
+mod counting;
 mod polls;
 mod questionaire;
 mod reports;
@@ -686,10 +687,11 @@ async fn send_pdf_report_to_bot(
     chat_id: ChatId,
     walk: &CompleteWalk,
 ) -> anyhow::Result<()> {
-    let pdf = reports::create_pdf_report(walk)?;
+    let pdf = reports::create_image_report(walk)?;
     let f =
-        InputFile::memory(pdf).file_name(format!("report-{}.pdf", walk.start.format("%d.%m.%Y")));
-    bot.send_document(chat_id, f).await?;
+        InputFile::memory(pdf).file_name(format!("report-{}.png", walk.start.format("%d.%m.%Y")));
+    bot.send_photo(chat_id, f).await?;
+    // bot.send_document(chat_id, f).await?;
     Ok(())
 }
 
