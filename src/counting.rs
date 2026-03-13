@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::FrogFound;
 
 pub struct DeadFrogCount {
-    found: HashMap<String, usize>,
+    pub found: HashMap<String, usize>,
 }
 impl DeadFrogCount {
     pub fn new(dead_frogs: &[crate::DeadFrog]) -> Self {
