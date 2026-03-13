@@ -4,6 +4,8 @@ token.txt
 openmeteo-url.txt
 # Locations where frogs were found. Also private!
 locations.txt
+# Also not putting my real name on the internet unnecessarily.
+author.txt
 /walks
 /debug-walks
 /assets
