@@ -32,12 +32,17 @@ impl QuestionaireFrogName {
 
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireSex {
+    pub last_message_id: MessageId,
     pub frog: PartialFrog,
     pub result: Option<Sex>,
 }
 impl QuestionaireSex {
-    pub(crate) fn new(frog: PartialFrog) -> Self {
-        Self { frog, result: None }
+    pub(crate) fn new(frog: PartialFrog, last_message_id: MessageId) -> Self {
+        Self {
+            frog,
+            result: None,
+            last_message_id,
+        }
     }
 }
 
@@ -119,21 +124,17 @@ pub(crate) async fn found_frog_name(
     Ok(())
 }
 
-pub(crate) async fn start_sex(
-    bot: Bot,
-    dialoge: Dialogue<State, InMemStorage<State>>,
-    name: &str,
-) -> anyhow::Result<()> {
+pub(crate) async fn start_sex(bot: Bot, chat_id: ChatId, name: &str) -> anyhow::Result<MessageId> {
     match name {
-        "Erdkröte" => sex::erdkroete(bot, dialoge).await,
-        "Knoblauchkröte" => sex::knoblauchkroete(bot, dialoge).await,
-        "Springfrosch" => sex::springfrosch(bot, dialoge).await,
-        "Grünfrosch" => sex::gruenfrosch(bot, dialoge).await,
-        "Grasfrosch" => sex::grasfrosch(bot, dialoge).await,
-        "Laubfrosch" => sex::laubfrosch(bot, dialoge).await,
-        "Teichmolch" => sex::teichmolch(bot, dialoge).await,
-        "Bergmolch" => sex::bergmolch(bot, dialoge).await,
-        "Kammmolch" => sex::kammmolch(bot, dialoge).await,
+        "Erdkröte" => sex::erdkroete(bot, chat_id).await,
+        "Knoblauchkröte" => sex::knoblauchkroete(bot, chat_id).await,
+        "Springfrosch" => sex::springfrosch(bot, chat_id).await,
+        "Grünfrosch" => sex::gruenfrosch(bot, chat_id).await,
+        "Grasfrosch" => sex::grasfrosch(bot, chat_id).await,
+        "Laubfrosch" => sex::laubfrosch(bot, chat_id).await,
+        "Teichmolch" => sex::teichmolch(bot, chat_id).await,
+        "Bergmolch" => sex::bergmolch(bot, chat_id).await,
+        "Kammmolch" => sex::kammmolch(bot, chat_id).await,
         _ => bail!("Unhandled species {name}!"),
     }
 }
@@ -145,6 +146,11 @@ pub(crate) async fn found_sex(
     poll: Poll,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
+    if poll.selected_index() < 0 {
+        bot.delete_message(dialoge.chat_id(), questionaire.last_message_id)
+            .await?;
+        return Ok(());
+    }
     let sex = match questionaire.frog.name.as_str() {
         "Erdkröte" => sex::erdkroete_answered(poll).await,
         "Knoblauchkröte" => sex::knoblauchkroete_answered(poll).await,

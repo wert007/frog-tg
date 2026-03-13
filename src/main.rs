@@ -424,13 +424,17 @@ impl State {
                 "Female" => Sex::Female,
                 "Unknown" => Sex::Unknown,
                 "Use Questionaire" => {
+                    let last_message_id =
+                        questionaire::start_sex(bot, dialoge.chat_id(), &frog.name).await?;
                     dialoge
                         .update(State::QuestionaireSex {
                             walk,
-                            questionaire: questionaire::QuestionaireSex::new(frog.clone()),
+                            questionaire: questionaire::QuestionaireSex::new(
+                                frog.clone(),
+                                last_message_id,
+                            ),
                         })
                         .await?;
-                    questionaire::start_sex(bot, dialoge, &frog.name).await?;
                     return Ok(());
                 }
                 _ => unreachable!(),
