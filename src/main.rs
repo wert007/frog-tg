@@ -504,6 +504,7 @@ async fn weather_change_requested(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
     cb: CallbackQuery,
+    last_location: LastLocation,
 ) -> anyhow::Result<()> {
     let mut state = dialoge.get_or_default().await?;
     let walk = state.as_walk_mut().unwrap();
@@ -514,6 +515,7 @@ async fn weather_change_requested(
         Some("found:repeat") => {
             let mut frog = walk.frogs.last().unwrap().clone();
             frog.time = Local::now();
+            frog.gps_location = if_is_relevant(last_location);
             walk.frogs.push(frog);
             is_repeat = true;
         }
