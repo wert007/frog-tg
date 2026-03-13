@@ -1,4 +1,6 @@
-use image::{DynamicImage, Pixel, Rgba};
+use std::io::{BufWriter, Cursor};
+
+use image::{DynamicImage, ImageFormat, Pixel, Rgba};
 use rusttype::{Font, Scale};
 use text_on_image::FontBundle;
 
@@ -21,8 +23,9 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     }
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
-    img.save("output.png")?;
-    todo!()
+    let mut w = BufWriter::new(Cursor::new(Vec::new()));
+    img.write_to(&mut w, ImageFormat::Png)?;
+    Ok(w.into_inner()?.into_inner())
 }
 
 fn display_named(species: &str, count: usize) -> String {
