@@ -66,6 +66,16 @@ impl ImageRenderable for FrogCount {
         for (species, count) in self.known_species() {
             let (x, y) = position_from_species(&species);
             let total_frog_count = count.total();
+            write_centered(
+                img,
+                display(total_frog_count.total()),
+                x + SEX_WIDTH * 3 / 2,
+                if species.ends_with("molch") {
+                    1415
+                } else {
+                    830
+                },
+            );
             for i in 0..3 {
                 write_centered(
                     img,
