@@ -18,6 +18,47 @@ impl DeadFrogCount {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct FrogCountLocation {
+    pub male: HashMap<String, usize>,
+    pub female: HashMap<String, usize>,
+    pub unknown: HashMap<String, usize>,
+}
+impl FrogCountLocation {
+    fn update(&mut self, name: &str, count: FrogCountSpeciesLocation) {
+        *self.male.entry(name.into()).or_default() += count.male;
+        *self.female.entry(name.into()).or_default() += count.female;
+        *self.unknown.entry(name.into()).or_default() += count.unknown;
+    }
+
+    pub(crate) fn format_male(&self, cb: impl Fn(&str, usize) -> String) -> String {
+        let mut result = String::new();
+        for (s, c) in &self.male {
+            result.push_str(&cb(s, *c));
+            result.push('\n');
+        }
+        result
+    }
+
+    pub(crate) fn format_female(&self, cb: impl Fn(&str, usize) -> String) -> String {
+        let mut result = String::new();
+        for (s, c) in &self.female {
+            result.push_str(&cb(s, *c));
+            result.push('\n');
+        }
+        result
+    }
+
+    pub(crate) fn format_unknown(&self, cb: impl Fn(&str, usize) -> String) -> String {
+        let mut result = String::new();
+        for (s, c) in &self.unknown {
+            result.push_str(&cb(s, *c));
+            result.push('\n');
+        }
+        result
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FrogCountSpeciesLocation {
     pub male: usize,
@@ -84,6 +125,41 @@ impl FrogCountSpecies {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Remaining {
+    towards: [FrogCountLocation; 3],
+    backwards: [FrogCountLocation; 3],
+}
+impl Remaining {
+    fn new(species: &HashMap<String, FrogCountSpecies>, ignore: [&str; 5]) -> Self {
+        let mut result = Self::default();
+        for (name, count) in species {
+            if ignore.contains(&name.as_str()) {
+                continue;
+            }
+            result.update(name, *count);
+        }
+        result
+    }
+
+    fn update(&mut self, name: &str, count: FrogCountSpecies) {
+        for (i, c) in count.towards.into_iter().enumerate() {
+            self.towards[i].update(name, c);
+        }
+        for (i, c) in count.backwards.into_iter().enumerate() {
+            self.backwards[i].update(name, c);
+        }
+    }
+
+    pub fn towards(&self, i: usize) -> &FrogCountLocation {
+        &self.towards[i]
+    }
+
+    pub fn backwards(&self, i: usize) -> &FrogCountLocation {
+        &self.backwards[i]
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct FrogCount {
     species: HashMap<String, FrogCountSpecies>,
@@ -111,6 +187,19 @@ impl FrogCount {
             "Kammmolch",
         ]
         .map(|s| (s, self.species.get(s).copied().unwrap_or_default()))
+    }
+
+    pub fn remaining(&self) -> Remaining {
+        Remaining::new(
+            &self.species,
+            [
+                "Erdkröte",
+                "Grasfrosch",
+                "Teichmolch",
+                "Bergmolch",
+                "Kammmolch",
+            ],
+        )
     }
     // fn fill_in(&self, doc: &mut Document, page_id: (u32, u16)) -> anyhow::Result<()> {
     //     for (species, count) in &self.species {

@@ -725,6 +725,24 @@ impl TimedLocation {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut walk = CompleteWalk::start().await?;
+    walk.frogs.push(FrogFound {
+        name: "Molch".into(),
+        sex: Sex::Female,
+        location: 0,
+        towards: true,
+        time: Local::now(),
+        gps_location: None,
+    });
+    walk.frogs.push(FrogFound {
+        name: "Feuersalamander".into(),
+        sex: Sex::Female,
+        location: 0,
+        towards: true,
+        time: Local::now(),
+        gps_location: None,
+    });
+    reports::create_image_report(&walk)?;
     let bot = Bot::new(TOKEN);
     let schema = dptree::entry()
         .map(|u: Update, m: Arc<Mutex<ChatId>>| {

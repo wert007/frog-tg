@@ -25,6 +25,29 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     todo!()
 }
 
+fn display_named(species: &str, count: usize) -> String {
+    if count > 0 {
+        match species {
+            "Kröte" => format!("{count} Kr"),
+            "Frosch" => format!("{count} Fr"),
+            "Molch" => format!("{count} M"),
+            "Erdkröte" => format!("{count} EKr"),
+            "Knoblauchkröte" => format!("{count} KnKr"),
+            "Grasfrosch" => format!("{count} GFr"),
+            "Springfrosch" => format!("{count} SFr"),
+            "Grünfrosch" => format!("{count} GrFr"),
+            "Laubfrosch" => format!("{count} LFr"),
+            "Teichmolch" => format!("{count} TM"),
+            "Bergmolch" => format!("{count} BM"),
+            "Kammmolch" => format!("{count} KM"),
+            "Feuersalamander" => format!("{count} FS"),
+            unknown => format!("{count} {unknown}"),
+        }
+    } else {
+        String::new()
+    }
+}
+
 fn display(number: usize) -> String {
     if number > 0 {
         number.to_string()
@@ -35,12 +58,12 @@ fn display(number: usize) -> String {
 
 impl ImageRenderable for FrogCount {
     fn fill_in(&self, img: &mut DynamicImage) {
+        const LOCATION_HEIGHT: i32 = 162;
+        const SEX_WIDTH: i32 = 146;
         for (species, count) in self.known_species() {
             let (x, y) = position_from_species(&species);
             let total_frog_count = count.total();
             for i in 0..3 {
-                const LOCATION_HEIGHT: i32 = 162;
-                const SEX_WIDTH: i32 = 146;
                 write_centered(
                     img,
                     display(count.towards(i).male),
@@ -78,6 +101,46 @@ impl ImageRenderable for FrogCount {
                     y + i as i32 * LOCATION_HEIGHT + LOCATION_HEIGHT / 2,
                 );
             }
+        }
+        let r = self.remaining();
+        let (x, y) = position_from_species("");
+        for i in 0..3 {
+            write_centered(
+                img,
+                r.towards(i).format_male(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2,
+                y + i as i32 * LOCATION_HEIGHT,
+            );
+            write_centered(
+                img,
+                r.towards(i).format_female(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2 + SEX_WIDTH,
+                y + i as i32 * LOCATION_HEIGHT,
+            );
+            write_centered(
+                img,
+                r.towards(i).format_unknown(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2 + 2 * SEX_WIDTH,
+                y + i as i32 * LOCATION_HEIGHT,
+            );
+            write_centered(
+                img,
+                r.backwards(i).format_male(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2,
+                y + LOCATION_HEIGHT / 2 + i as i32 * LOCATION_HEIGHT,
+            );
+            write_centered(
+                img,
+                r.backwards(i).format_female(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2 + SEX_WIDTH,
+                y + LOCATION_HEIGHT / 2 + i as i32 * LOCATION_HEIGHT,
+            );
+            write_centered(
+                img,
+                r.backwards(i).format_unknown(|s, c| display_named(s, c)),
+                x + SEX_WIDTH / 2 + 2 * SEX_WIDTH,
+                y + LOCATION_HEIGHT / 2 + i as i32 * LOCATION_HEIGHT,
+            );
         }
     }
 }
