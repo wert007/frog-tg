@@ -23,6 +23,9 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     }
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
+
+    write(&mut img, include_str!("../../author.txt"), 215, 1489);
+
     let mut w = BufWriter::new(Cursor::new(Vec::new()));
     img.write_to(&mut w, ImageFormat::Png)?;
     Ok(w.into_inner()?.into_inner())
