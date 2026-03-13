@@ -4,7 +4,7 @@ use image::{DynamicImage, ImageFormat, Pixel, Rgba};
 use rusttype::{Font, Scale};
 use text_on_image::FontBundle;
 
-use crate::counting::FrogCount;
+use crate::counting::{DeadFrogCount, FrogCount};
 
 const TEMPLATE: &'static [u8] = include_bytes!("../../assets/template.png");
 const FONT: &'static [u8] = include_bytes!("../../assets/fonts/Coolvetica Rg.otf");
@@ -23,6 +23,7 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     }
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
+    DeadFrogCount::new(&walk.dead_frogs).fill_in(&mut img);
 
     write(&mut img, include_str!("../../author.txt"), 215, 1489);
 
@@ -47,6 +48,7 @@ fn display_named(species: &str, count: usize) -> String {
             "Bergmolch" => format!("{count} BM"),
             "Kammmolch" => format!("{count} KM"),
             "Feuersalamander" => format!("{count} FS"),
+            "" => format!("{count} ?"),
             unknown => format!("{count} {unknown}"),
         }
     } else {
@@ -59,6 +61,17 @@ fn display(number: usize) -> String {
         number.to_string()
     } else {
         String::new()
+    }
+}
+
+impl ImageRenderable for DeadFrogCount {
+    fn fill_in(&self, img: &mut DynamicImage) {
+        let mut text = String::new();
+        for (species, count) in &self.found {
+            text.push_str(&display_named(species, *count));
+            text.push('\n');
+        }
+        write_centered(img, text, 1700, 700);
     }
 }
 
