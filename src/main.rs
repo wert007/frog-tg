@@ -18,6 +18,7 @@ use crate::{
     weather::{BotWeatherExt, WeatherStats},
 };
 
+mod counting;
 mod polls;
 mod questionaire;
 mod reports;
