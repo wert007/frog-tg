@@ -686,7 +686,7 @@ async fn end_walk(
     walk.end = Some(date);
     _ = walk.weather.ending(mode.is_debug()).await;
     serde_json::to_writer(
-        std::fs::File::create_new(path).context("Recreating file for current walk")?,
+        std::fs::File::create_new(&path).context("Recreating file for current walk")?,
         &walk,
     )
     .context("Writing new walk to freshly created walk")?;
@@ -702,7 +702,7 @@ async fn end_walk(
     )
     .await?;
 
-    send_pdf_report_to_bot(bot, dialoge.chat_id(), &walk).await?;
+    send_pdf_report_to_bot(bot, dialoge.chat_id(), &path, &walk).await?;
 
     dialoge.update(State::Start).await?;
     Ok(())
@@ -711,9 +711,11 @@ async fn end_walk(
 async fn send_pdf_report_to_bot(
     bot: Bot,
     chat_id: ChatId,
+    path: &str,
     walk: &CompleteWalk,
 ) -> anyhow::Result<()> {
     let img = reports::create_image_report(walk)?;
+    std::fs::write(std::path::Path::new(path).with_extension("png"), &img)?;
     let f =
         InputFile::memory(img).file_name(format!("report-{}.png", walk.start.format("%d.%m.%Y")));
     bot.send_photo(chat_id, f).await?;
