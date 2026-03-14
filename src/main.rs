@@ -93,7 +93,7 @@ pub struct DeadFrog {
     time: DateTime<Local>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct CompleteWalk {
     start: chrono::DateTime<Local>,
     end: Option<chrono::DateTime<Local>>,
@@ -494,6 +494,7 @@ impl State {
             .reply_markup(InlineKeyboardMarkup::new([
                 [InlineKeyboardButton::callback("Repeat", "found:repeat")],
                 [InlineKeyboardButton::callback("Find", "found:next")],
+                [InlineKeyboardButton::callback("End", "found:end")],
             ]))
             .await?;
         walk.frogs.push(frog);
@@ -519,6 +520,7 @@ async fn weather_change_requested(
     dialoge: Dialogue<State, InMemStorage<State>>,
     cb: CallbackQuery,
     last_location: LastLocation,
+    mode: Mode,
 ) -> anyhow::Result<()> {
     let mut state = dialoge.get_or_default().await?;
     let walk = state.as_walk_mut().unwrap();
@@ -538,6 +540,12 @@ async fn weather_change_requested(
             MainQuestion::FoundSomething
                 .ask(bot, dialoge.chat_id())
                 .await?;
+            return Ok(());
+        }
+        Some("found:end") => {
+            bot.answer_callback_query(cb.id).await?;
+            let walk = std::mem::take(walk);
+            end_walk(bot, walk, dialoge, mode).await?;
             return Ok(());
         }
         Some("weather:wind-0") => {
