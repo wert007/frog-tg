@@ -176,6 +176,9 @@ pub enum State {
     WalkStarted {
         walk: CompleteWalk,
     },
+    WaitForModeChange {
+        walk: CompleteWalk,
+    },
     QuestionaireFrogName {
         walk: CompleteWalk,
         questionaire: questionaire::QuestionaireFrogName,
@@ -209,7 +212,7 @@ impl State {
     fn as_walk(&self) -> Option<CompleteWalk> {
         match self {
             State::Start => None,
-            State::WalkStarted { walk } => Some(walk.clone()),
+            State::WalkStarted { walk } | State::WaitForModeChange { walk } => Some(walk.clone()),
             State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
             State::QuestionaireSex { walk, .. } => Some(walk.clone()),
             State::DeadFrog { walk } => Some(walk.clone()),
@@ -222,7 +225,7 @@ impl State {
     fn as_walk_mut(&mut self) -> Option<&mut CompleteWalk> {
         match self {
             State::Start => None,
-            State::WalkStarted { walk } => Some(walk),
+            State::WalkStarted { walk } | State::WaitForModeChange { walk } => Some(walk),
             State::QuestionaireFrogName { walk, .. } => Some(walk),
             State::QuestionaireSex { walk, .. } => Some(walk),
             State::DeadFrog { walk } => Some(walk),
@@ -257,17 +260,10 @@ impl State {
         Ok(())
     }
 
-    async fn start(bot: Bot, dialoge: DialogueState, mode: Mode) -> anyhow::Result<()> {
+    async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
         let walk = CompleteWalk::start()
             .await
             .context("Creating walk for new walk created by user")?;
-        if mode.is_debug() {
-            bot.send_message(
-                dialoge.chat_id(),
-                "You are in test mode. Press /realfrogs to actually record your walk!",
-            )
-            .await?;
-        }
         bot.send_weather_stats(dialoge.chat_id(), walk.weather)
             .await
             .context("Sending the weather via tg to user")?;
@@ -311,7 +307,7 @@ impl State {
     ) -> anyhow::Result<()> {
         match poll.selected() {
             "End" => {
-                end_walk(bot, walk, dialoge, mode).await?;
+                maybe_end_walk(bot, walk, dialoge, mode).await?;
             }
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
                 let last_message_id = MainQuestion::AskForSex(name.into())
@@ -515,7 +511,7 @@ fn if_is_relevant(last_location: LastLocation) -> Option<TimedLocation> {
     }
 }
 
-async fn weather_change_requested(
+async fn inline_keyboard_button_pressed(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
     cb: CallbackQuery,
@@ -528,6 +524,18 @@ async fn weather_change_requested(
     let before = *weather;
     let mut is_repeat = false;
     match cb.data.as_ref().map(|s| s.as_str()) {
+        Some("end:debug") => {
+            bot.answer_callback_query(cb.id).await?;
+            let walk = std::mem::take(walk);
+            end_walk(bot, walk, dialoge, Mode::create_debug()).await?;
+            return Ok(());
+        }
+        Some("end:switch") => {
+            bot.answer_callback_query(cb.id).await?;
+            let walk = std::mem::take(walk);
+            end_walk(bot, walk, dialoge, Mode::create_release()).await?;
+            return Ok(());
+        }
         Some("found:repeat") => {
             let mut frog = walk.frogs.last().unwrap().clone();
             frog.time = Local::now();
@@ -545,7 +553,7 @@ async fn weather_change_requested(
         Some("found:end") => {
             bot.answer_callback_query(cb.id).await?;
             let walk = std::mem::take(walk);
-            end_walk(bot, walk, dialoge, mode).await?;
+            maybe_end_walk(bot, walk, dialoge, mode).await?;
             return Ok(());
         }
         Some("weather:wind-0") => {
@@ -662,6 +670,30 @@ async fn weather_change_requested(
         dialoge.update(state).await?;
     }
     Ok(())
+}
+
+async fn maybe_end_walk(
+    bot: Bot,
+    walk: CompleteWalk,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    mode: Mode,
+) -> Result<(), anyhow::Error> {
+    if mode.is_debug() {
+        bot.send_message(
+            dialoge.chat_id(),
+            "You are in debug mode. If this is a real walk switch now.",
+        )
+        .reply_markup(
+            InlineKeyboardMarkup::default()
+                .append_row([InlineKeyboardButton::callback("Switch", "end:switch")])
+                .append_row([InlineKeyboardButton::callback("Debug", "end:debug")]),
+        )
+        .await?;
+        dialoge.update(State::WaitForModeChange { walk }).await?;
+        Ok(())
+    } else {
+        end_walk(bot, walk, dialoge, mode).await
+    }
 }
 
 async fn end_walk(
@@ -804,7 +836,7 @@ async fn main() -> anyhow::Result<()> {
         .branch(
             Update::filter_callback_query()
                 .filter_map(|s: State| s.as_walk())
-                .endpoint(weather_change_requested),
+                .endpoint(inline_keyboard_button_pressed),
         )
         .branch(
             Update::filter_poll()
