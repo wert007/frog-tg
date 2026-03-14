@@ -665,6 +665,7 @@ async fn inline_keyboard_button_pressed(
         .reply_markup(InlineKeyboardMarkup::new([
             [InlineKeyboardButton::callback("Repeat", "found:repeat")],
             [InlineKeyboardButton::callback("Find", "found:next")],
+            [InlineKeyboardButton::callback("End", "found:end")],
         ]))
         .await?;
         dialoge.update(state).await?;
