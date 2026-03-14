@@ -83,8 +83,9 @@ impl WeatherStats {
 
 const OPENMETEO_URL: &'static str = include_str!("../openmeteo-url.txt").trim_ascii();
 
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
 pub enum Beaufort {
+    #[default]
     Zero,
     One,
     Two,
@@ -151,7 +152,7 @@ impl Beaufort {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
 pub enum Percipation {
     None,
     StrongRain,
@@ -160,6 +161,7 @@ pub enum Percipation {
     Fog,
     Snow,
     Graupel,
+    #[default]
     Unknown,
 }
 
@@ -193,8 +195,9 @@ impl Percipation {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
 pub enum GroundHumidity {
+    #[default]
     Unknown,
     Wet,
     Humid,
@@ -224,6 +227,12 @@ pub enum Cloudiness {
     GettingCloudy,
     GettingClear,
     Error(f64),
+}
+
+impl Default for Cloudiness {
+    fn default() -> Self {
+        Self::Error(f64::NAN)
+    }
 }
 
 impl std::fmt::Display for Cloudiness {
@@ -276,7 +285,7 @@ impl Cloudiness {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct WeatherStats {
     pub temperature_start: f64,
     pub temperature_end: Option<f64>,
@@ -307,7 +316,7 @@ impl WeatherStats {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
 struct OpenMeteoResponse {
     // TODO: This would be nice but is always a bit of struggle in serde...
     // time: chrono::DateTime<Local>,
