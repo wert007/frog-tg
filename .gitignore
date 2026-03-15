@@ -6,6 +6,8 @@ openmeteo-url.txt
 locations.txt
 # Also not putting my real name on the internet unnecessarily.
 author.txt
+# Just a lock ensuring that not multiple instances of the bot are running!
+lock.txt
 /walks
 /debug-walks
 /assets
