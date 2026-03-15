@@ -1,6 +1,8 @@
 use std::io::{BufWriter, Cursor};
 
+use chrono::Timelike;
 use image::{DynamicImage, ImageFormat, Pixel, Rgba};
+use imageproc::pixelops::interpolate;
 use rusttype::{Font, Scale};
 use text_on_image::FontBundle;
 
@@ -16,11 +18,7 @@ trait ImageRenderable {
 pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<Vec<u8>> {
     let mut img = image::load_from_memory(TEMPLATE)?;
 
-    write(&mut img, walk.start.format("%d.%m.%Y"), 196, 243);
-    write(&mut img, walk.start.format("%H:%m"), 220, 317);
-    if let Some(end) = walk.end {
-        write(&mut img, end.format("%H:%m"), 220, 351);
-    }
+    write_time(&mut img, walk);
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
     DeadFrogCount::new(&walk.dead_frogs).fill_in(&mut img);
@@ -30,6 +28,28 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     let mut w = BufWriter::new(Cursor::new(Vec::new()));
     img.write_to(&mut w, ImageFormat::Png)?;
     Ok(w.into_inner()?.into_inner())
+}
+
+fn write_time(img: &mut DynamicImage, walk: &crate::CompleteWalk) {
+    write(img, walk.start.format("%d.%m.%Y"), 196, 243);
+    write(img, walk.start.format("%H:%m"), 220, 317);
+    if let Some(end) = walk.end {
+        write(img, end.format("%H:%m"), 220, 351);
+    }
+    for y in (110..126).step_by(3) {
+        let (start, end) = if walk.start.hour() > 12 {
+            ((y, 870), (y, 930))
+        } else {
+            ((y, 760), (y, 840))
+        };
+        imageproc::drawing::draw_antialiased_line_segment_mut(
+            img,
+            start,
+            end,
+            *Rgba::from_slice(&[0u8, 0, 0, 0xff]),
+            interpolate,
+        );
+    }
 }
 
 fn display_named(species: &str, count: usize) -> String {
