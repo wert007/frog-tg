@@ -825,6 +825,21 @@ async fn main() -> anyhow::Result<()> {
                             anyhow::Ok(())
                         }),
                 )
+                .branch(
+                    dptree::filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/report"))
+                        .endpoint(async |bot: Bot, dialogue: DialogueState| {
+                            let text = match dialogue.get_or_default().await?.as_walk() {
+                                Some(w) if w.frogs.is_empty() => {
+                                    "Nothing has been found yet.".into()
+                                }
+                                Some(w) => reports::create_inline_end_walk_report(&w),
+                                _ => "Use command /start to start a new walk first.".into(),
+                            };
+
+                            bot.send_message(dialogue.chat_id(), text).await?;
+                            anyhow::Ok(())
+                        }),
+                )
                 .branch(dptree::case![State::Start].endpoint(State::start))
                 .branch(
                     dptree::case![State::EnterTemperature {
