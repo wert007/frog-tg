@@ -786,7 +786,10 @@ impl TimedLocation {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let f = std::fs::File::create("lock.txt")?;
+    f.lock()?;
     let bot = Bot::new(TOKEN);
+    println!("Bot started");
     let schema = dptree::entry()
         .map(|u: Update, m: Arc<Mutex<ChatId>>| {
             let i = u.chat().map(|c| c.id).unwrap_or(*m.lock());
@@ -922,6 +925,7 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .dispatch()
         .await;
+    drop(f);
     Ok(())
 }
 
