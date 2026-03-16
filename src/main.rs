@@ -130,7 +130,7 @@ impl CompleteWalk {
     fn create_note(&mut self, text: String, location: LastLocation) {
         self.notes.push(Note {
             text,
-            location: 3,
+            location: 2,
             time: Local::now(),
             gps_location: if_is_relevant(location),
         });
