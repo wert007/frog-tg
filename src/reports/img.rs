@@ -22,12 +22,30 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
     DeadFrogCount::new(&walk.dead_frogs).fill_in(&mut img);
+    write_notes(&mut img, &walk.notes);
 
     write(&mut img, include_str!("../../author.txt"), 215, 1489);
 
     let mut w = BufWriter::new(Cursor::new(Vec::new()));
     img.write_to(&mut w, ImageFormat::Png)?;
     Ok(w.into_inner()?.into_inner())
+}
+
+fn write_notes(img: &mut DynamicImage, notes: &[crate::Note]) {
+    let mut texts = [const { String::new() }; 12];
+    for note in notes {
+        let index = note.location * 2;
+
+        if !texts[index].is_empty() {
+            texts[index].push('\n');
+        }
+
+        texts[index].push_str(&note.text);
+    }
+    for (i, text) in texts.into_iter().enumerate() {
+        let offset = 385 + i * 85 + if i > 5 { 150 } else { 0 };
+        write(img, text, 1920, offset as i32);
+    }
 }
 
 fn write_time(img: &mut DynamicImage, walk: &crate::CompleteWalk) {
