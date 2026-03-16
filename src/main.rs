@@ -5,10 +5,11 @@ use anyhow::{Context, anyhow, bail};
 use chrono::{DateTime, Local};
 use teloxide::{
     dispatching::dialogue::{GetChatId, InMemStorage},
+    payloads::SetMessageReactionSetters,
     prelude::*,
     types::{
         InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputPollOption, Location,
-        MessageId, UpdateKind,
+        MessageId, ReactionType, UpdateKind,
     },
 };
 
@@ -94,11 +95,20 @@ pub struct DeadFrog {
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Note {
+    text: String,
+    location: usize,
+    time: DateTime<Local>,
+    gps_location: Option<TimedLocation>,
+}
+
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct CompleteWalk {
     start: chrono::DateTime<Local>,
     end: Option<chrono::DateTime<Local>>,
     weather: WeatherStats,
     frogs: Vec<FrogFound>,
+    notes: Vec<Note>,
     dead_frogs: Vec<DeadFrog>,
     repeats: usize,
 }
@@ -112,8 +122,18 @@ impl CompleteWalk {
                 .context("Starting a new walk")?,
             frogs: Vec::new(),
             dead_frogs: Vec::new(),
+            notes: Vec::new(),
             repeats: 0,
         })
+    }
+
+    fn create_note(&mut self, text: String, location: LastLocation) {
+        self.notes.push(Note {
+            text,
+            location: 3,
+            time: Local::now(),
+            gps_location: if_is_relevant(location),
+        });
     }
 }
 
@@ -784,6 +804,28 @@ impl TimedLocation {
     }
 }
 
+async fn add_note(
+    bot: Bot,
+    dialoge: Dialogue<State, InMemStorage<State>>,
+    message: Message,
+    text: String,
+    location: LastLocation,
+) -> anyhow::Result<()> {
+    let mut s = dialoge.get().await?.ok_or(anyhow!(
+        "This can only be executed if a walk has been started???"
+    ))?;
+    s.as_walk_mut()
+        .ok_or(anyhow!("There should be a walk at this point!"))?
+        .create_note(text, location);
+    dialoge.update(s).await?;
+    bot.set_message_reaction(dialoge.chat_id(), message.id)
+        .reaction(vec![ReactionType::Emoji {
+            emoji: "✍".into()
+        }])
+        .await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let f = std::fs::File::create("lock.txt")?;
@@ -843,14 +885,20 @@ async fn main() -> anyhow::Result<()> {
                             anyhow::Ok(())
                         }),
                 )
-                .branch(dptree::case![State::Start].endpoint(State::start))
+                .branch(
+                    dptree::case![State::Start]
+                        .filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/start"))
+                        .endpoint(State::start),
+                )
                 .branch(
                     dptree::case![State::EnterTemperature {
                         is_start,
                         prev_state
                     }]
                     .endpoint(State::enter_temperature),
-                ),
+                )
+                .filter_map(|m: Message| m.text().map(ToString::to_string))
+                .endpoint(add_note),
         )
         .branch(
             Update::filter_callback_query()
