@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use teloxide::{
     payloads::{SendMessage, SendMessageSetters},
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message},
 };
 
 pub trait BotWeatherExt: teloxide::prelude::Requester {
@@ -9,7 +9,7 @@ pub trait BotWeatherExt: teloxide::prelude::Requester {
         &self,
         chat_id: C,
         weather: WeatherStats,
-    ) -> Result<(), Self::Err>;
+    ) -> Result<Message, Self::Err>;
 }
 
 impl BotWeatherExt for teloxide::Bot {
@@ -17,16 +17,17 @@ impl BotWeatherExt for teloxide::Bot {
         &self,
         chat_id: C,
         weather: WeatherStats,
-    ) -> Result<(), Self::Err> {
+    ) -> Result<Message, Self::Err> {
         let m = SendMessage::new(chat_id, weather.as_message());
 
         let k = WeatherStats::default_weather_keyboard_markup();
         let m = m.reply_markup(k);
-        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m).await?;
+        let a = <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m)
+            .await?;
 
         // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
         // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
-        Ok(())
+        Ok(a)
     }
 }
 

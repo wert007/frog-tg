@@ -1,5 +1,8 @@
 use parking_lot::Mutex;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    collections::HashMap,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use anyhow::{Context, anyhow, bail};
 use chrono::{DateTime, Local};
@@ -140,6 +143,35 @@ impl CompleteWalk {
 #[derive(Debug, Clone)]
 pub struct Mode(Arc<AtomicBool>);
 
+#[derive(Debug, Clone, Copy)]
+pub enum MessageClassification {
+    Weather,
+    Frog(usize),
+    DeadFrog(usize),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SentMessage(Arc<parking_lot::Mutex<HashMap<MessageId, MessageClassification>>>);
+impl SentMessage {
+    fn clear(&self) {
+        self.0.lock().clear();
+    }
+
+    fn add_weather(&self, id: MessageId) {
+        self.0.lock().insert(id, MessageClassification::Weather);
+    }
+
+    fn add_frog(&self, id: MessageId, index: usize) {
+        self.0.lock().insert(id, MessageClassification::Frog(index));
+    }
+
+    fn add_dead_frog(&self, id: MessageId, index: usize) {
+        self.0
+            .lock()
+            .insert(id, MessageClassification::DeadFrog(index));
+    }
+}
+
 impl Mode {
     pub fn change_to_debug(&self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -260,6 +292,7 @@ impl State {
         dialoge: DialogueState,
         (is_start, prev_state): (bool, Box<State>),
         message: Message,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         let temp = message
             .text()
@@ -275,12 +308,14 @@ impl State {
         } else {
             weather.temperature_end = Some(temp);
         }
-        bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        let m = bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        sent.add_weather(m.id);
         dialoge.update(state).await?;
         Ok(())
     }
 
-    async fn start(bot: Bot, dialoge: DialogueState) -> anyhow::Result<()> {
+    async fn start(bot: Bot, dialoge: DialogueState, sent: SentMessage) -> anyhow::Result<()> {
+        sent.clear();
         let walk = CompleteWalk::start()
             .await
             .context("Creating walk for new walk created by user")?;
@@ -296,6 +331,7 @@ impl State {
         prev_state: Box<State>,
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         use weather::Percipation::*;
         let percipation = match poll.selected_index() {
@@ -312,7 +348,11 @@ impl State {
         let mut state = *prev_state;
         let weather = &mut state.as_walk_mut().expect("Should be unreachable").weather;
         weather.percipation = percipation;
-        bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+        let w = bot
+            .send_weather_stats(dialoge.chat_id(), *weather)
+            .await?
+            .id;
+        sent.add_weather(w);
         dialoge.update(state).await?;
         Ok(())
     }
@@ -324,6 +364,7 @@ impl State {
         dialoge: DialogueState,
         poll: Poll,
         mode: Mode,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         match poll.selected() {
             "End" => {
@@ -333,6 +374,7 @@ impl State {
                 let last_message_id = MainQuestion::AskForSex(name.into())
                     .ask(bot, dialoge.chat_id())
                     .await?;
+                sent.add_frog(last_message_id, walk.frogs.len());
                 dialoge
                     .update(State::FrogIdentified {
                         frog: PartialFrog {
@@ -349,6 +391,7 @@ impl State {
                 let last_message_id = QuestionaireQuestion::IsItAFrogToadOrMolch
                     .ask(bot.clone(), dialoge.chat_id())
                     .await?;
+                sent.add_frog(last_message_id, walk.frogs.len());
                 dialoge
                     .update(State::QuestionaireFrogName {
                         walk,
@@ -357,9 +400,10 @@ impl State {
                     .await?;
             }
             "Dead Frog :(" => {
-                MainQuestion::FoundDeadFrog
+                let id = MainQuestion::FoundDeadFrog
                     .ask(bot, dialoge.chat_id())
                     .await?;
+                sent.add_dead_frog(id, walk.dead_frogs.len());
                 dialoge.update(State::DeadFrog { walk }).await?;
             }
             _ => bail!("TODO"),
@@ -372,15 +416,17 @@ impl State {
         walk: CompleteWalk,
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         let name = match poll.selected() {
             "No" => None,
             name => Some(name.to_string()),
         };
-        dialoge.update(State::DeadFrogName { walk, name }).await?;
-        MainQuestion::WhereAreYou
+        let id = MainQuestion::WhereAreYou
             .ask(bot, dialoge.chat_id())
             .await?;
+        sent.add_dead_frog(id, walk.dead_frogs.len());
+        dialoge.update(State::DeadFrogName { walk, name }).await?;
         Ok(())
     }
 
@@ -413,6 +459,7 @@ impl State {
         (mut frog, walk, last_message_id): (PartialFrog, CompleteWalk, MessageId),
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         if poll.selected_index() < 0
             && let Some(q) = MainQuestion::find_original(&poll.question)
@@ -431,9 +478,9 @@ impl State {
             return Ok(());
         }
         if frog.location.is_some() {
-            State::frog_identified_sex_location(bot, (frog, walk), dialoge, poll).await?;
+            State::frog_identified_sex_location(bot, (frog, walk), dialoge, poll, sent).await?;
         } else if frog.sex.is_some() {
-            State::frog_identified_sex(bot, (frog, walk), dialoge, poll).await?;
+            State::frog_identified_sex(bot, (frog, walk), dialoge, poll, sent).await?;
         } else {
             let sex = match poll.selected() {
                 "Male" => Sex::Male,
@@ -442,6 +489,8 @@ impl State {
                 "Use Questionaire" => {
                     let last_message_id =
                         questionaire::start_sex(bot, dialoge.chat_id(), &frog.name).await?;
+                    sent.add_frog(last_message_id, walk.frogs.len());
+
                     dialoge
                         .update(State::QuestionaireSex {
                             walk,
@@ -459,6 +508,7 @@ impl State {
             let last_message_id = MainQuestion::WhereAreYou
                 .ask(bot, dialoge.chat_id())
                 .await?;
+            sent.add_frog(last_message_id, walk.frogs.len());
             dialoge
                 .update(State::FrogIdentified {
                     frog,
@@ -469,11 +519,13 @@ impl State {
         }
         Ok(())
     }
+
     async fn frog_identified_sex(
         bot: Bot,
         (mut frog, walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         let location = poll.selected_index();
         if location < 0 {
@@ -484,6 +536,7 @@ impl State {
         let last_message_id = MainQuestion::WhereIsFrogHeaded
             .ask(bot, dialoge.chat_id())
             .await?;
+        sent.add_frog(last_message_id, walk.frogs.len());
         dialoge
             .update(State::FrogIdentified {
                 frog,
@@ -499,6 +552,7 @@ impl State {
         (mut frog, mut walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         let towards = poll.selected_index() == 0;
         if poll.selected_index() < 0 {
@@ -506,13 +560,16 @@ impl State {
         }
         frog.towards = Some(towards);
         let frog = frog.build()?;
-        bot.send_message(dialoge.chat_id(), format!("Found {}", frog.to_message()))
+        let id = bot
+            .send_message(dialoge.chat_id(), format!("Found {}", frog.to_message()))
             .reply_markup(InlineKeyboardMarkup::new([
                 [InlineKeyboardButton::callback("Repeat", "found:repeat")],
                 [InlineKeyboardButton::callback("Find", "found:next")],
                 [InlineKeyboardButton::callback("End", "found:end")],
             ]))
-            .await?;
+            .await?
+            .id;
+        sent.add_frog(id, walk.frogs.len());
         walk.frogs.push(frog);
         walk.repeats = 1;
         dialoge.update(State::WalkStarted { walk }).await?;
@@ -537,6 +594,7 @@ async fn inline_keyboard_button_pressed(
     cb: CallbackQuery,
     last_location: LastLocation,
     mode: Mode,
+    sent: SentMessage,
 ) -> anyhow::Result<()> {
     let mut state = dialoge.get_or_default().await?;
     let walk = state.as_walk_mut().unwrap();
@@ -619,8 +677,11 @@ async fn inline_keyboard_button_pressed(
                     prev_state: Box::new(state),
                 })
                 .await?;
-            bot.send_message(dialoge.chat_id(), "Enter now your starting temperature:")
-                .await?;
+            let id = bot
+                .send_message(dialoge.chat_id(), "Enter now your starting temperature:")
+                .await?
+                .id;
+            sent.add_weather(id);
             bot.answer_callback_query(cb.id).await?;
             return Ok(());
         }
@@ -631,8 +692,11 @@ async fn inline_keyboard_button_pressed(
                     prev_state: Box::new(state),
                 })
                 .await?;
-            bot.send_message(dialoge.chat_id(), "Enter now your ending temperature:")
-                .await?;
+            let id = bot
+                .send_message(dialoge.chat_id(), "Enter now your ending temperature:")
+                .await?
+                .id;
+            sent.add_weather(id);
             bot.answer_callback_query(cb.id).await?;
             return Ok(());
         }
@@ -642,21 +706,24 @@ async fn inline_keyboard_button_pressed(
                     prev_state: Box::new(state),
                 })
                 .await?;
-            bot.send_poll(
-                dialoge.chat_id(),
-                "Select the current percipation:",
-                [
-                    weather::Percipation::None,
-                    weather::Percipation::Fog,
-                    weather::Percipation::Drizzle,
-                    weather::Percipation::ModerateRain,
-                    weather::Percipation::StrongRain,
-                    weather::Percipation::Graupel,
-                    weather::Percipation::Snow,
-                ]
-                .map(|e| InputPollOption::new(e.to_string())),
-            )
-            .await?;
+            let id = bot
+                .send_poll(
+                    dialoge.chat_id(),
+                    "Select the current percipation:",
+                    [
+                        weather::Percipation::None,
+                        weather::Percipation::Fog,
+                        weather::Percipation::Drizzle,
+                        weather::Percipation::ModerateRain,
+                        weather::Percipation::StrongRain,
+                        weather::Percipation::Graupel,
+                        weather::Percipation::Snow,
+                    ]
+                    .map(|e| InputPollOption::new(e.to_string())),
+                )
+                .await?
+                .id;
+            sent.add_weather(id);
             bot.answer_callback_query(cb.id).await?;
             return Ok(());
         }
@@ -968,7 +1035,8 @@ async fn main() -> anyhow::Result<()> {
             InMemStorage::<State>::new(),
             Arc::new(Mutex::<ChatId>::new(ChatId(0))),
             Mode::create_debug(),
-            Arc::new(Mutex::new(TimedLocation::error()))
+            Arc::new(Mutex::new(TimedLocation::error())),
+            SentMessage::default()
         ])
         .build()
         .dispatch()
