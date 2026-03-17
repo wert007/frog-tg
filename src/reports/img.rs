@@ -1,4 +1,7 @@
-use std::io::{BufWriter, Cursor};
+use std::{
+    collections::HashMap,
+    io::{BufWriter, Cursor},
+};
 
 use chrono::Timelike;
 use image::{DynamicImage, ImageFormat, Pixel, Rgba};
@@ -6,7 +9,10 @@ use imageproc::pixelops::interpolate;
 use rusttype::{Font, Scale};
 use text_on_image::FontBundle;
 
-use crate::counting::{DeadFrogCount, FrogCount};
+use crate::{
+    DeadFrog, FrogFound,
+    counting::{DeadFrogCount, FrogCount},
+};
 
 const TEMPLATE: &'static [u8] = include_bytes!("../../assets/template.png");
 const FONT: &'static [u8] = include_bytes!("../../assets/fonts/Coolvetica Rg.otf");
@@ -22,7 +28,7 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     write_weather(&mut img, walk.weather);
     FrogCount::new(&walk.frogs).fill_in(&mut img);
     DeadFrogCount::new(&walk.dead_frogs).fill_in(&mut img);
-    write_notes(&mut img, &walk.notes);
+    write_notes(&mut img, &walk.notes, &walk.frogs, &walk.dead_frogs);
 
     write(&mut img, include_str!("../../author.txt"), 215, 1489);
 
@@ -31,20 +37,46 @@ pub(crate) fn create_image_report(walk: &crate::CompleteWalk) -> anyhow::Result<
     Ok(w.into_inner()?.into_inner())
 }
 
-fn write_notes(img: &mut DynamicImage, notes: &[crate::Note]) {
-    let mut texts = [const { String::new() }; 12];
+fn write_notes(
+    img: &mut DynamicImage,
+    notes: &[crate::Note],
+    frogs: &[FrogFound],
+    dead_frogs: &[DeadFrog],
+) {
+    let mut texts: HashMap<(i32, i32), String> = HashMap::new();
     for note in notes {
-        let index = note.location * 2;
+        let (x, y) = match note.source {
+            crate::MessageClassification::None => (10, 10),
+            crate::MessageClassification::Weather => (1200, 10),
+            crate::MessageClassification::Frog(i) => {
+                let (_, base_y) = position_from_species(&frogs[i].name);
+                (
+                    1920,
+                    base_y + note.location as i32 * 170 + if frogs[i].towards { 0 } else { 85 },
+                )
+            }
+            crate::MessageClassification::DeadFrog(i) => {
+                let (_, base_y) = position_from_species(
+                    dead_frogs[i]
+                        .name
+                        .as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or_default(),
+                );
+                (1920, base_y + note.location as i32 * 170)
+            }
+        };
+        //  385 + note.location * 2 * 85 + if note.location > 5 { 150 } else { 0 };
 
-        if !texts[index].is_empty() {
-            texts[index].push('\n');
+        let entry = texts.entry((x, y)).or_default();
+        if !entry.is_empty() {
+            entry.push('\n');
         }
 
-        texts[index].push_str(&note.text);
+        entry.push_str(&note.text);
     }
-    for (i, text) in texts.into_iter().enumerate() {
-        let offset = 385 + i * 85 + if i > 5 { 150 } else { 0 };
-        write(img, text, 1920, offset as i32);
+    for ((x, y), text) in texts {
+        write(img, text, x, y);
     }
 }
 
