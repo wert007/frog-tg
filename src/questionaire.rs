@@ -2,7 +2,7 @@ use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::MessageId};
 
 use crate::{
-    CompleteWalk, LastLocation, PartialFrog, PollExt, Sex, State, if_is_relevant,
+    CompleteWalk, LastLocation, PartialFrog, PollExt, SentMessage, Sex, State, if_is_relevant,
     polls::{MainQuestion, QuestionaireQuestion},
 };
 
@@ -51,6 +51,7 @@ pub(crate) async fn found_species(
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireFrogName),
     poll: Poll,
+    sent: SentMessage,
 ) -> anyhow::Result<()> {
     let species = match poll.selected() {
         "Molch (Has Tail)" => Species::Molch,
@@ -70,6 +71,7 @@ pub(crate) async fn found_species(
         Species::Toad => QuestionaireQuestion::ItIsAToad,
     };
     questionaire.last_message_id = question.ask(bot, dialoge.chat_id()).await?;
+    sent.add_frog(questionaire.last_message_id, walk.frogs.len());
     dialoge
         .update(State::QuestionaireFrogName { walk, questionaire })
         .await?;
@@ -82,6 +84,7 @@ pub(crate) async fn found_frog_name(
     last_location: LastLocation,
     (walk, questionaire): (CompleteWalk, QuestionaireFrogName),
     poll: Poll,
+    sent: SentMessage,
 ) -> anyhow::Result<()> {
     let name = match (
         questionaire
@@ -110,6 +113,8 @@ pub(crate) async fn found_frog_name(
     let last_message_id = MainQuestion::AskForSex(name.into())
         .ask(bot, dialoge.chat_id())
         .await?;
+    sent.add_frog(last_message_id, walk.frogs.len());
+
     dialoge
         .update(State::FrogIdentified {
             frog: crate::PartialFrog {
@@ -144,6 +149,7 @@ pub(crate) async fn found_sex(
     dialoge: Dialogue<State, InMemStorage<State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireSex),
     poll: Poll,
+    sent: SentMessage,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
     if poll.selected_index() < 0 {
@@ -165,6 +171,7 @@ pub(crate) async fn found_sex(
     }?;
     questionaire.frog.sex = Some(sex);
     let last_message_id = MainQuestion::WhereAreYou.ask(bot, chat_id).await?;
+    sent.add_frog(last_message_id, walk.frogs.len());
     dialoge
         .update(State::FrogIdentified {
             frog: questionaire.frog,
