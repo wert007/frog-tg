@@ -166,28 +166,63 @@ pub enum MessageClassification {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct SentMessage(Arc<parking_lot::Mutex<HashMap<MessageId, MessageClassification>>>);
+pub struct SentMessage {
+    context: Arc<parking_lot::Mutex<HashMap<MessageId, MessageClassification>>>,
+    history: Arc<parking_lot::Mutex<Vec<MessageId>>>,
+}
+
 impl SentMessage {
+    fn clear_history(&self) {
+        self.history.lock().clear();
+    }
     fn clear(&self) {
-        self.0.lock().clear();
+        self.context.lock().clear();
+        self.history.lock().clear();
     }
 
     fn add_weather(&self, id: MessageId) {
-        self.0.lock().insert(id, MessageClassification::Weather);
+        self.add_to_history(id);
+        self.context
+            .lock()
+            .insert(id, MessageClassification::Weather);
     }
 
     fn add_frog(&self, id: MessageId, index: usize) {
-        self.0.lock().insert(id, MessageClassification::Frog(index));
+        self.add_to_history(id);
+        self.context
+            .lock()
+            .insert(id, MessageClassification::Frog(index));
     }
 
     fn add_dead_frog(&self, id: MessageId, index: usize) {
-        self.0
+        self.add_to_history(id);
+        self.context
             .lock()
             .insert(id, MessageClassification::DeadFrog(index));
     }
 
     fn get(&self, id: MessageId) -> Option<MessageClassification> {
-        self.0.lock().get(&id).copied()
+        self.context.lock().get(&id).copied()
+    }
+
+    fn add_to_history(&self, id: MessageId) {
+        self.history.lock().push(id);
+    }
+
+    async fn go_back(
+        &self,
+        bot: Bot,
+        dialoge: Dialogue<State, InMemStorage<State>>,
+    ) -> anyhow::Result<()> {
+        let Some(id) = self.history.lock().pop() else {
+            eprintln!("No going back possible!");
+            return Ok(());
+        };
+        let r = bot.delete_message(dialoge.chat_id(), id).await?;
+        dbg!(r);
+        let previous = dialoge.get_or_default().await?.go_back();
+        dialoge.update(previous).await?;
+        Ok(())
     }
 }
 
@@ -238,6 +273,27 @@ impl PartialFrog {
             time: Local::now(),
         })
     }
+
+    fn go_back(&self) -> Option<PartialFrog> {
+        if self.towards.is_some() {
+            Some(Self {
+                towards: None,
+                ..self.clone()
+            })
+        } else if self.location.is_some() {
+            Some(Self {
+                location: None,
+                ..self.clone()
+            })
+        } else if self.sex.is_some() {
+            Some(Self {
+                sex: None,
+                ..self.clone()
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -268,7 +324,6 @@ pub enum State {
     FrogIdentified {
         frog: PartialFrog,
         walk: CompleteWalk,
-        last_message_id: MessageId,
     },
     EnterTemperature {
         is_start: bool,
@@ -386,9 +441,13 @@ impl State {
         mode: Mode,
         sent: SentMessage,
     ) -> anyhow::Result<()> {
+        if poll.selected_index() < 0 {
+            sent.go_back(bot, dialoge).await?;
+            return Ok(());
+        }
         match poll.selected() {
             "End" => {
-                maybe_end_walk(bot, walk, dialoge, mode).await?;
+                maybe_end_walk(bot, walk, dialoge, mode, sent).await?;
             }
             name @ ("Erdkröte" | "Grasfrosch" | "Teichmolch" | "Bergmolch" | "Kammmolch") => {
                 let last_message_id = MainQuestion::AskForSex(name.into())
@@ -403,7 +462,6 @@ impl State {
                             ..Default::default()
                         },
                         walk,
-                        last_message_id,
                     })
                     .await?;
             }
@@ -415,7 +473,7 @@ impl State {
                 dialoge
                     .update(State::QuestionaireFrogName {
                         walk,
-                        questionaire: QuestionaireFrogName::new(last_message_id),
+                        questionaire: QuestionaireFrogName::new(),
                     })
                     .await?;
             }
@@ -438,6 +496,10 @@ impl State {
         poll: Poll,
         sent: SentMessage,
     ) -> anyhow::Result<()> {
+        if poll.selected_index() < 0 {
+            sent.go_back(bot, dialoge).await?;
+            return Ok(());
+        }
         let name = match poll.selected() {
             "No" => None,
             name => Some(name.to_string()),
@@ -455,10 +517,12 @@ impl State {
         (mut walk, name): (CompleteWalk, Option<String>),
         dialoge: DialogueState,
         poll: Poll,
+        sent: SentMessage,
     ) -> anyhow::Result<()> {
         let location = poll.selected_index();
         if location < 0 {
-            bail!("We do not really handle you unselecting something. sorry.");
+            sent.go_back(bot, dialoge).await?;
+            return Ok(());
         }
         let location = location as usize;
         walk.dead_frogs.push(DeadFrog {
@@ -468,33 +532,37 @@ impl State {
             time: Local::now(),
         });
         dialoge.update(State::WalkStarted { walk }).await?;
-        MainQuestion::FoundSomething
-            .ask(bot, dialoge.chat_id())
-            .await?;
+        sent.clear_history();
+        sent.add_to_history(
+            MainQuestion::FoundSomething
+                .ask(bot, dialoge.chat_id())
+                .await?,
+        );
         Ok(())
     }
 
     async fn frog_identified(
         bot: Bot,
-        (mut frog, walk, last_message_id): (PartialFrog, CompleteWalk, MessageId),
+        (mut frog, walk): (PartialFrog, CompleteWalk),
         dialoge: DialogueState,
         poll: Poll,
         sent: SentMessage,
     ) -> anyhow::Result<()> {
         if poll.selected_index() < 0
-            && let Some(q) = MainQuestion::find_original(&poll.question)
+        // && let Some(q) = MainQuestion::find_original(&poll.question)
         {
-            match q {
-                MainQuestion::FoundSomething => {
-                    dialoge.update(State::WalkStarted { walk }).await?;
-                }
-                MainQuestion::FoundDeadFrog => unreachable!("I think this is unreachable"),
-                MainQuestion::WhereIsFrogHeaded => frog.towards = None,
-                MainQuestion::WhereAreYou => frog.location = None,
-                MainQuestion::AskForSex(_) => frog.sex = None,
-            }
-            bot.delete_message(dialoge.chat_id(), last_message_id)
-                .await?;
+            sent.go_back(bot, dialoge).await?;
+            // match q {
+            //     MainQuestion::FoundSomething => {
+            //         dialoge.update(State::WalkStarted { walk }).await?;
+            //     }
+            //     MainQuestion::FoundDeadFrog => unreachable!("I think this is unreachable"),
+            //     MainQuestion::WhereIsFrogHeaded => frog.towards = None,
+            //     MainQuestion::WhereAreYou => frog.location = None,
+            //     MainQuestion::AskForSex(_) => frog.sex = None,
+            // }
+            // bot.delete_message(dialoge.chat_id(), last_message_id)
+            //     .await?;
             return Ok(());
         }
         if frog.location.is_some() {
@@ -514,10 +582,7 @@ impl State {
                     dialoge
                         .update(State::QuestionaireSex {
                             walk,
-                            questionaire: questionaire::QuestionaireSex::new(
-                                frog.clone(),
-                                last_message_id,
-                            ),
+                            questionaire: questionaire::QuestionaireSex::new(frog.clone()),
                         })
                         .await?;
                     return Ok(());
@@ -529,13 +594,7 @@ impl State {
                 .ask(bot, dialoge.chat_id())
                 .await?;
             sent.add_frog(last_message_id, walk.frogs.len());
-            dialoge
-                .update(State::FrogIdentified {
-                    frog,
-                    walk,
-                    last_message_id,
-                })
-                .await?;
+            dialoge.update(State::FrogIdentified { frog, walk }).await?;
         }
         Ok(())
     }
@@ -557,13 +616,7 @@ impl State {
             .ask(bot, dialoge.chat_id())
             .await?;
         sent.add_frog(last_message_id, walk.frogs.len());
-        dialoge
-            .update(State::FrogIdentified {
-                frog,
-                walk,
-                last_message_id,
-            })
-            .await?;
+        dialoge.update(State::FrogIdentified { frog, walk }).await?;
         Ok(())
     }
 
@@ -594,6 +647,62 @@ impl State {
         walk.repeats = 1;
         dialoge.update(State::WalkStarted { walk }).await?;
         Ok(())
+    }
+
+    fn go_back(&self) -> Self {
+        match self {
+            State::WalkStarted { .. } | State::Start => self.clone(),
+            State::DeadFrog { walk } | State::WaitForModeChange { walk } => {
+                Self::WalkStarted { walk: walk.clone() }
+            }
+            State::QuestionaireFrogName { walk, questionaire } => {
+                if let Some(questionaire) = questionaire.go_back() {
+                    Self::QuestionaireFrogName {
+                        walk: walk.clone(),
+                        questionaire,
+                    }
+                } else {
+                    Self::WalkStarted { walk: walk.clone() }
+                }
+            }
+            State::QuestionaireSex { walk, questionaire } => {
+                if let Some(questionaire) = questionaire.go_back() {
+                    Self::QuestionaireSex {
+                        walk: walk.clone(),
+                        questionaire,
+                    }
+                } else {
+                    Self::FrogIdentified {
+                        frog: questionaire.frog.clone(),
+                        walk: walk.clone(),
+                    }
+                }
+            }
+            State::DeadFrogName { walk, name } => {
+                if name.is_some() {
+                    Self::DeadFrogName {
+                        walk: walk.clone(),
+                        name: None,
+                    }
+                } else {
+                    Self::WalkStarted { walk: walk.clone() }
+                }
+            }
+            State::FrogIdentified { frog, walk } => {
+                if let Some(frog) = frog.go_back() {
+                    Self::FrogIdentified {
+                        frog,
+                        walk: walk.clone(),
+                    }
+                } else {
+                    // TODO: Check that using questionaire does not break
+                    // anything here!
+                    Self::WalkStarted { walk: walk.clone() }
+                }
+            }
+            State::ChangePercipation { prev_state }
+            | State::EnterTemperature { prev_state, .. } => *prev_state.clone(),
+        }
     }
 }
 
@@ -643,15 +752,18 @@ async fn inline_keyboard_button_pressed(
         }
         Some("found:next") => {
             bot.answer_callback_query(cb.id).await?;
-            MainQuestion::FoundSomething
-                .ask(bot, dialoge.chat_id())
-                .await?;
+            sent.clear_history();
+            sent.add_to_history(
+                MainQuestion::FoundSomething
+                    .ask(bot, dialoge.chat_id())
+                    .await?,
+            );
             return Ok(());
         }
         Some("found:end") => {
             bot.answer_callback_query(cb.id).await?;
             let walk = std::mem::take(walk);
-            maybe_end_walk(bot, walk, dialoge, mode).await?;
+            maybe_end_walk(bot, walk, dialoge, mode, sent).await?;
             return Ok(());
         }
         Some("weather:wind-0") => {
@@ -785,18 +897,21 @@ async fn maybe_end_walk(
     walk: CompleteWalk,
     dialoge: Dialogue<State, InMemStorage<State>>,
     mode: Mode,
+    sent: SentMessage,
 ) -> Result<(), anyhow::Error> {
     if mode.is_debug() {
-        bot.send_message(
-            dialoge.chat_id(),
-            "You are in debug mode. If this is a real walk switch now.",
-        )
-        .reply_markup(
-            InlineKeyboardMarkup::default()
-                .append_row([InlineKeyboardButton::callback("Switch", "end:switch")])
-                .append_row([InlineKeyboardButton::callback("Debug", "end:debug")]),
-        )
-        .await?;
+        let m = bot
+            .send_message(
+                dialoge.chat_id(),
+                "You are in debug mode. If this is a real walk switch now.",
+            )
+            .reply_markup(
+                InlineKeyboardMarkup::default()
+                    .append_row([InlineKeyboardButton::callback("Switch", "end:switch")])
+                    .append_row([InlineKeyboardButton::callback("Debug", "end:debug")]),
+            )
+            .await?;
+        sent.add_to_history(m.id);
         dialoge.update(State::WaitForModeChange { walk }).await?;
         Ok(())
     } else {
@@ -942,12 +1057,17 @@ async fn main() -> anyhow::Result<()> {
                             .then(|| s.as_walk())
                             .flatten()
                     })
-                    .endpoint(async |bot, dialoge: DialogueState| {
-                        MainQuestion::FoundSomething
-                            .ask(bot, dialoge.chat_id())
-                            .await
-                            .map(|_| ())
-                    }),
+                    .endpoint(
+                        async |bot, dialoge: DialogueState, sent: SentMessage| {
+                            sent.clear_history();
+                            sent.add_to_history(
+                                MainQuestion::FoundSomething
+                                    .ask(bot, dialoge.chat_id())
+                                    .await?,
+                            );
+                            Ok(())
+                        },
+                    ),
                 )
                 .branch(
                     dptree::filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/realfrogs"))
@@ -1008,6 +1128,10 @@ async fn main() -> anyhow::Result<()> {
                     dptree::case![State::WalkStarted { walk }]
                         .endpoint(State::poll_answer_walk_started),
                 )
+                .branch(
+                    dptree::case![State::WaitForModeChange { walk }]
+                        .endpoint(State::poll_answer_walk_started),
+                )
                 .branch(dptree::case![State::DeadFrog { walk }].endpoint(State::dead_frog_answered))
                 .branch(
                     dptree::case![State::DeadFrogName { walk, name }]
@@ -1028,12 +1152,8 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(questionaire::found_sex),
                 )
                 .branch(
-                    dptree::case![State::FrogIdentified {
-                        frog,
-                        walk,
-                        last_message_id
-                    }]
-                    .endpoint(State::frog_identified),
+                    dptree::case![State::FrogIdentified { frog, walk }]
+                        .endpoint(State::frog_identified),
                 ),
         )
         .branch(

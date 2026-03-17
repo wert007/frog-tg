@@ -17,31 +17,38 @@ pub enum Species {
 
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireFrogName {
-    pub last_message_id: MessageId,
     pub species: Option<Species>,
 }
 
 impl QuestionaireFrogName {
-    pub fn new(last_message_id: MessageId) -> Self {
-        Self {
-            last_message_id,
-            species: None,
+    pub fn new() -> Self {
+        Self { species: None }
+    }
+
+    pub(crate) fn go_back(&self) -> Option<QuestionaireFrogName> {
+        if self.species.is_some() {
+            Some(Self::new())
+        } else {
+            None
         }
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct QuestionaireSex {
-    pub last_message_id: MessageId,
     pub frog: PartialFrog,
     pub result: Option<Sex>,
 }
 impl QuestionaireSex {
-    pub(crate) fn new(frog: PartialFrog, last_message_id: MessageId) -> Self {
-        Self {
-            frog,
-            result: None,
-            last_message_id,
+    pub(crate) fn new(frog: PartialFrog) -> Self {
+        Self { frog, result: None }
+    }
+
+    pub(crate) fn go_back(&self) -> Option<QuestionaireSex> {
+        if self.result.is_some() {
+            Some(Self::new(self.frog.clone()))
+        } else {
+            None
         }
     }
 }
@@ -53,15 +60,15 @@ pub(crate) async fn found_species(
     poll: Poll,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
+    if poll.selected_index() < 0 {
+        sent.go_back(bot, dialoge).await?;
+        return Ok(());
+    }
     let species = match poll.selected() {
         "Molch (Has Tail)" => Species::Molch,
         "Toad (Has Wards)" => Species::Toad,
         "Frog (No Wards)" => Species::Frog,
         "Unsure" => bail!("TODO"),
-        "" => {
-            dialoge.update(State::WalkStarted { walk }).await?;
-            return Ok(());
-        }
         _ => unreachable!(),
     };
     questionaire.species = Some(species);
@@ -70,8 +77,8 @@ pub(crate) async fn found_species(
         Species::Frog => QuestionaireQuestion::ItIsAFrog,
         Species::Toad => QuestionaireQuestion::ItIsAToad,
     };
-    questionaire.last_message_id = question.ask(bot, dialoge.chat_id()).await?;
-    sent.add_frog(questionaire.last_message_id, walk.frogs.len());
+    let id = question.ask(bot, dialoge.chat_id()).await?;
+    sent.add_frog(id, walk.frogs.len());
     dialoge
         .update(State::QuestionaireFrogName { walk, questionaire })
         .await?;
@@ -93,8 +100,7 @@ pub(crate) async fn found_frog_name(
         poll.selected_index(),
     ) {
         (_, -1) => {
-            bot.delete_message(dialoge.chat_id(), questionaire.last_message_id)
-                .await?;
+            sent.go_back(bot, dialoge).await?;
             return Ok(());
         }
         (Species::Molch, 0) => "Kammmolch",
@@ -123,7 +129,6 @@ pub(crate) async fn found_frog_name(
                 ..Default::default()
             },
             walk,
-            last_message_id,
         })
         .await?;
     Ok(())
@@ -153,8 +158,7 @@ pub(crate) async fn found_sex(
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
     if poll.selected_index() < 0 {
-        bot.delete_message(dialoge.chat_id(), questionaire.last_message_id)
-            .await?;
+        sent.go_back(bot, dialoge).await?;
         return Ok(());
     }
     let sex = match questionaire.frog.name.as_str() {
@@ -176,7 +180,6 @@ pub(crate) async fn found_sex(
         .update(State::FrogIdentified {
             frog: questionaire.frog,
             walk,
-            last_message_id,
         })
         .await?;
     Ok(())
