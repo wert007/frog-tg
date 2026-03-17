@@ -302,7 +302,8 @@ impl State {
             State::DeadFrog { walk } => Some(walk),
             State::DeadFrogName { walk, .. } => Some(walk),
             State::FrogIdentified { walk, .. } => Some(walk),
-            State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
+            State::ChangePercipation { prev_state }
+            | State::EnterTemperature { prev_state, .. } => prev_state.as_walk_mut(),
         }
     }
 
