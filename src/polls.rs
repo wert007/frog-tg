@@ -84,22 +84,6 @@ impl MainQuestion {
             .id)
     }
 
-    pub fn find_original(msg: &str) -> Option<MainQuestion> {
-        if msg == Self::FoundSomething.question() {
-            Some(Self::FoundSomething)
-        } else if msg == Self::FoundDeadFrog.question() {
-            Some(Self::FoundDeadFrog)
-        } else if msg == Self::WhereIsFrogHeaded.question() {
-            Some(Self::WhereIsFrogHeaded)
-        } else if msg == Self::WhereAreYou.question() {
-            Some(Self::WhereAreYou)
-        } else if let Some(name) = msg.strip_prefix("Enter the sex of your ") {
-            Some(Self::AskForSex(name.split(' ').next()?.into()))
-        } else {
-            None
-        }
-    }
-
     fn question(&self) -> Cow<'static, str> {
         match self {
             MainQuestion::FoundSomething => "What did you find?".into(),
