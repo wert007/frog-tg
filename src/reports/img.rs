@@ -141,7 +141,7 @@ impl ImageRenderable for DeadFrogCount {
             text.push_str(&display_named(species, *count));
             text.push('\n');
         }
-        write_centered(img, text, 1700, 700);
+        write_centered(img, text, 1800, 600);
     }
 }
 
