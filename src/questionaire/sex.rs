@@ -4,7 +4,7 @@ use teloxide::{
     types::{InputPollOption, MessageId},
 };
 
-use crate::{PollExt, Sex};
+use crate::{Sex, utils::PollExt};
 
 pub async fn erdkroete(bot: Bot, chat_id: ChatId) -> anyhow::Result<MessageId> {
     Ok(bot

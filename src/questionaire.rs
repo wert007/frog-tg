@@ -2,8 +2,9 @@ use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::MessageId};
 
 use crate::{
-    CompleteWalk, LastLocation, PartialFrog, PollExt, SentMessage, Sex, State, if_is_relevant,
+    CompleteWalk, LastLocation, PartialFrog, SentMessage, Sex, State,
     polls::{MainQuestion, QuestionaireQuestion},
+    utils::PollExt,
 };
 
 mod sex;
@@ -125,7 +126,7 @@ pub(crate) async fn found_frog_name(
         .update(State::FrogIdentified {
             frog: crate::PartialFrog {
                 name: name.into(),
-                gps_location: if_is_relevant(last_location),
+                gps_location: last_location.as_location(),
                 ..Default::default()
             },
             walk,
