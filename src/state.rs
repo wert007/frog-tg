@@ -1,5 +1,6 @@
 use crate::{
-    CompleteWalk, DeadFrog, PartialFrog, Sex, maybe_end_walk,
+    CompleteWalk, DeadFrog, PartialFrog, Sex,
+    end_walk::maybe_end_walk,
     polls::{MainQuestion, QuestionaireQuestion},
     questionaire::{self, QuestionaireFrogName},
     utils::{DialogueState, LastLocation, Mode, PollExt, SentMessage},

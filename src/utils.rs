@@ -6,7 +6,10 @@ use std::{
 use chrono::{DateTime, Local};
 use parking_lot::Mutex;
 use teloxide::{
-    dispatching::{DpHandlerDescription, dialogue::InMemStorage},
+    dispatching::{
+        DpHandlerDescription,
+        dialogue::{GetChatId, InMemStorage},
+    },
     dptree::di::Injectable,
     prelude::*,
     types::{Location, MessageId, UpdateKind},
@@ -131,12 +134,6 @@ impl SentMessage {
 }
 
 impl Mode {
-    pub fn change_to_debug(&self) {
-        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-    pub fn change_to_release(&self) {
-        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
     pub fn as_path(&self) -> &'static str {
         if self.is_debug() {
             "debug-walks"
@@ -225,5 +222,30 @@ impl TimedLocation {
             longitude: f64::NAN,
             time: DateTime::UNIX_EPOCH.with_timezone(&Local),
         }
+    }
+}
+
+#[derive(Clone)]
+#[allow(unused)]
+pub struct UpdateWithSuppliedChatId(Update, ChatId);
+
+impl UpdateWithSuppliedChatId {
+    pub fn ensure_id(update: Update) -> Self {
+        let id = update.chat_id().unwrap_or_else(|| match &update.kind {
+            teloxide::types::UpdateKind::PollAnswer(poll_answer) => poll_answer
+                .voter
+                .chat()
+                .map(|c| c.id)
+                .or(poll_answer.voter.user().map(|u| ChatId::from(u.id)))
+                .unwrap(),
+            err => todo!("{err:#?}"),
+        });
+        UpdateWithSuppliedChatId(update, id)
+    }
+}
+
+impl GetChatId for UpdateWithSuppliedChatId {
+    fn chat_id(&self) -> Option<ChatId> {
+        Some(self.1)
     }
 }
