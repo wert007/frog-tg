@@ -151,6 +151,19 @@ impl Beaufort {
             Beaufort::Higher => Beaufort::Higher,
         }
     }
+
+    pub(crate) fn to_german(&self) -> &str {
+        match self {
+            Beaufort::Zero => "Bft 0",
+            Beaufort::One => "Bft 1",
+            Beaufort::Two => "Bft 2",
+            Beaufort::Three => "Bft 3",
+            Beaufort::Four => "Bft 4",
+            Beaufort::Five => "Bft 5",
+            Beaufort::Six => "Bft 6",
+            Beaufort::Higher => "Bft 7+",
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -194,6 +207,19 @@ impl Percipation {
             _ => Percipation::Unknown,
         }
     }
+
+    pub fn to_german(&self) -> &str {
+        match self {
+            Percipation::None => "keiner",
+            Percipation::StrongRain => "Starker Regen",
+            Percipation::ModerateRain => "Mäßiger Regen",
+            Percipation::Drizzle => "Niesel",
+            Percipation::Fog => "Nebel",
+            Percipation::Snow => "Schnee",
+            Percipation::Graupel => "Graupel",
+            Percipation::Unknown => "?",
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -204,6 +230,18 @@ pub enum GroundHumidity {
     Humid,
     Dry,
     VeryDry,
+}
+
+impl GroundHumidity {
+    pub fn to_german(&self) -> &str {
+        match self {
+            GroundHumidity::Unknown => "?",
+            GroundHumidity::Wet => "nass",
+            GroundHumidity::Humid => "feucht",
+            GroundHumidity::Dry => "trocken",
+            GroundHumidity::VeryDry => "sehr trocken",
+        }
+    }
 }
 
 impl std::fmt::Display for GroundHumidity {
@@ -282,6 +320,19 @@ impl Cloudiness {
             Cloudiness::FewClouds => Cloudiness::Clouds,
             Cloudiness::Clear => Cloudiness::FewClouds,
             it => *it,
+        }
+    }
+
+    pub fn to_german(&self) -> &str {
+        match self {
+            Cloudiness::AllClouds => "bedeckt",
+            Cloudiness::ManyClouds => "stark bewölkt",
+            Cloudiness::Clouds => "bewölkt",
+            Cloudiness::FewClouds => "leicht bewölkt",
+            Cloudiness::Clear => "wolkenlos",
+            Cloudiness::GettingCloudy => "zuziehend",
+            Cloudiness::GettingClear => "aufklarend",
+            Cloudiness::Error(_) => "?",
         }
     }
 }

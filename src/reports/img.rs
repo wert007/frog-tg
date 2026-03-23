@@ -268,12 +268,14 @@ fn write_weather(img: &mut DynamicImage, weather: crate::weather::WeatherStats) 
         600,
         243,
     );
-    write(img, weather.wind_beaufort, 930, 243);
+    write(img, weather.wind_beaufort.to_german(), 930, 243);
     write(
         img,
         format!(
             "{}/{}/{}",
-            weather.ground_humidity, weather.percipation, weather.cloudiness
+            weather.ground_humidity.to_german(),
+            weather.percipation.to_german(),
+            weather.cloudiness.to_german()
         ),
         1500,
         243,
