@@ -21,20 +21,20 @@ pub type R = anyhow::Result<()>;
 pub type DialogueState = Dialogue<State, InMemStorage<State>>;
 
 pub trait PollExt {
-    fn selected(&self) -> &str;
     fn selected_index(&self) -> isize;
 }
 
-impl PollExt for Poll {
-    fn selected(&self) -> &str {
-        self.options
+impl PollExt for PollAnswer {
+    fn selected_index(&self) -> isize {
+        self.option_ids
             .iter()
-            .filter(|o| o.voter_count > 0)
-            .map(|o| o.text.as_str())
+            .map(|i| *i as isize)
             .next()
-            .unwrap_or_default()
+            .unwrap_or(-1)
     }
+}
 
+impl PollExt for Poll {
     fn selected_index(&self) -> isize {
         self.options
             .iter()
@@ -125,8 +125,7 @@ impl SentMessage {
             eprintln!("No going back possible!");
             return Ok(());
         };
-        let r = bot.delete_message(dialoge.chat_id(), id).await?;
-        dbg!(r);
+        bot.delete_message(dialoge.chat_id(), id).await?;
         let previous = dialoge.get_or_default().await?.go_back();
         dialoge.update(previous).await?;
         Ok(())

@@ -8,7 +8,7 @@ use teloxide::{
 };
 
 use crate::{
-    CompleteWalk, FrogFound,
+    CompleteWalk,
     end_walk::{end_walk, maybe_end_walk},
     polls::MainQuestion,
     state::State,
@@ -40,6 +40,7 @@ pub async fn inline_keyboard_weather_pressed(
     state: State,
     message_id: MessageId,
     dialoge: DialogueState,
+    sent: SentMessage,
 ) -> R {
     let before = state.as_walk().unwrap().weather;
     let weather = {
@@ -81,55 +82,53 @@ pub async fn inline_keyboard_weather_pressed(
             "ground-very-dry" => {
                 walk.weather.ground_humidity = weather::GroundHumidity::VeryDry;
             }
-            // "temperature-start-change" => {
-            //     dialoge
-            //         .get_or_default()
-            //         .await?
-            //         .change_to_enter_temperature(true);
-            //     let id = bot
-            //         .send_message(dialoge.chat_id(), "Enter now your starting temperature:")
-            //         .await?
-            //         .id;
-            //     sent.add_weather(id);
-            //     bot.answer_callback_query(cb.id).await?;
-            //     return Ok(());
-            // }
-            // "temperature-end-change" => {
-            //     dialoge
-            //         .get_or_default()
-            //         .await?
-            //         .change_to_enter_temperature(false);
-            //     let id = bot
-            //         .send_message(dialoge.chat_id(), "Enter now your ending temperature:")
-            //         .await?
-            //         .id;
-            //     sent.add_weather(id);
-            //     bot.answer_callback_query(cb.id).await?;
-            //     return Ok(());
-            // }
-            // "percipation-change" => {
-            //     dialoge.get_or_default().await?.change_to_percipation();
-            //     let id = bot
-            //         .send_poll(
-            //             dialoge.chat_id(),
-            //             "Select the current percipation:",
-            //             [
-            //                 weather::Percipation::None,
-            //                 weather::Percipation::Fog,
-            //                 weather::Percipation::Drizzle,
-            //                 weather::Percipation::ModerateRain,
-            //                 weather::Percipation::StrongRain,
-            //                 weather::Percipation::Graupel,
-            //                 weather::Percipation::Snow,
-            //             ]
-            //             .map(|e| InputPollOption::new(e.to_string())),
-            //         )
-            //         .await?
-            //         .id;
-            //     sent.add_weather(id);
-            //     bot.answer_callback_query(cb.id).await?;
-            //     return Ok(());
-            // }
+            "temperature-start-change" => {
+                drop(walk);
+                state.change_to_enter_temperature(true);
+                let id = bot
+                    .send_message(dialoge.chat_id(), "Enter now your starting temperature:")
+                    .await?
+                    .id;
+                sent.add_weather(id);
+                bot.answer_callback_query(cb_id).await?;
+                return Ok(());
+            }
+            "temperature-end-change" => {
+                drop(walk);
+                state.change_to_enter_temperature(false);
+                let id = bot
+                    .send_message(dialoge.chat_id(), "Enter now your ending temperature:")
+                    .await?
+                    .id;
+                sent.add_weather(id);
+                bot.answer_callback_query(cb_id).await?;
+                return Ok(());
+            }
+            "percipation-change" => {
+                drop(walk);
+                state.change_to_percipation();
+                let id = bot
+                    .send_poll(
+                        dialoge.chat_id(),
+                        "Select the current percipation:",
+                        [
+                            weather::Percipation::None,
+                            weather::Percipation::Fog,
+                            weather::Percipation::Drizzle,
+                            weather::Percipation::ModerateRain,
+                            weather::Percipation::StrongRain,
+                            weather::Percipation::Graupel,
+                            weather::Percipation::Snow,
+                        ]
+                        .map(|e| InputPollOption::new(e.to_string())),
+                    )
+                    .is_anonymous(false)
+                    .await?
+                    .id;
+                sent.add_weather(id);
+                bot.answer_callback_query(cb_id).await?;
+                return Ok(());
+            }
             // None => todo!(),
             _ => bail!("TODO"),
         }
@@ -241,8 +240,10 @@ pub fn inline_keyboard_button_pressed(
                 .await
             }
             "weather" => {
-                inline_keyboard_weather_pressed(bot, argument, cb.id, state, message_id, dialoge)
-                    .await
+                inline_keyboard_weather_pressed(
+                    bot, argument, cb.id, state, message_id, dialoge, sent,
+                )
+                .await
             }
             _ => unreachable!(),
         }

@@ -20,11 +20,12 @@ pub async fn erdkroete(bot: Bot, chat_id: ChatId) -> anyhow::Result<MessageId> {
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn erdkroete_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn erdkroete_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("Unselecting not supported!"),
         0..3 => Sex::Male,
@@ -46,11 +47,12 @@ pub(crate) async fn gruenfrosch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Mes
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn gruenfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn gruenfrosch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("No unselecting supported!"),
         0..2 => Sex::Male,
@@ -75,11 +77,12 @@ pub(crate) async fn teichmolch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Mess
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn teichmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn teichmolch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("No unselecting supported"),
         0 | 2 | 4 => Sex::Male,
@@ -103,11 +106,12 @@ pub(crate) async fn grasfrosch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Mess
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn grasfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn grasfrosch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("No unselecting supported"),
         0..3 => Sex::Male,
@@ -128,11 +132,12 @@ pub(crate) async fn kammmolch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Messa
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn kammmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn kammmolch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("No unselecting supported"),
         0 => Sex::Male,
@@ -156,11 +161,12 @@ pub(crate) async fn bergmolch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Messa
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn bergmolch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn bergmolch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("Unselecting not supported yet"),
         0..3 => Sex::Male,
@@ -182,11 +188,12 @@ pub(crate) async fn springfrosch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Me
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn springfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn springfrosch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("Unselecting not supported"),
         0..2 => Sex::Male,
@@ -208,11 +215,12 @@ pub(crate) async fn knoblauchkroete(bot: Bot, chat_id: ChatId) -> anyhow::Result
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn knoblauchkroete_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn knoblauchkroete_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("Cannot unselect answers"),
         0..2 => Sex::Male,
@@ -235,11 +243,12 @@ pub(crate) async fn laubfrosch(bot: Bot, chat_id: ChatId) -> anyhow::Result<Mess
             ]
             .map(InputPollOption::new),
         )
+        .is_anonymous(false)
         .await?
         .id)
 }
 
-pub(crate) async fn laubfrosch_answered(poll: Poll) -> Result<Sex, anyhow::Error> {
+pub(crate) async fn laubfrosch_answered(poll: PollAnswer) -> Result<Sex, anyhow::Error> {
     Ok(match poll.selected_index() {
         -1 => bail!("Cannot unselect options"),
         0..2 => Sex::Male,

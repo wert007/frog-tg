@@ -3,12 +3,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Local};
-use teloxide::{dispatching::dialogue::InMemStorage, dptree::entry, prelude::*};
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 
 use crate::{
     notes::Note,
     polls::MainQuestion,
-    questionaire::QuestionaireFrogName,
     state::State,
     utils::{
         DialogueState, LastLocation, MessageClassification, Mode, SentMessage, TimedLocation,
@@ -155,19 +154,23 @@ async fn main() -> anyhow::Result<()> {
                     .then(|| s.as_walk())
                     .flatten()
             })
-            .endpoint(async |bot, dialoge: DialogueState, sent: SentMessage| {
-                sent.clear_history();
-                sent.add_to_history(
-                    MainQuestion::FoundSomething
-                        .ask(bot, dialoge.chat_id())
-                        .await?,
-                );
-                Ok(())
-            }),
+            .endpoint(
+                async |bot, dialoge: DialogueState, sent: SentMessage, s: State| {
+                    // TODO: Check that s.as_walk().is_some()!
+                    sent.clear_history();
+                    sent.add_to_history(
+                        MainQuestion::FoundSomething
+                            .ask(bot, dialoge.chat_id())
+                            .await?,
+                    );
+                    Ok(())
+                },
+            ),
         )
         .branch(if_is_command("report", commands::report))
+        .branch(if_is_command("start", commands::start))
         .endpoint(State::text_message);
-    let poll_answered_handler = Update::filter_poll().endpoint(polls::poll_answered);
+    let poll_answered_handler = Update::filter_poll_answer().endpoint(polls::poll_answered);
     let schema = dptree::entry()
         .map(UpdateWithSuppliedChatId::ensure_id)
         .enter_dialogue::<UpdateWithSuppliedChatId, InMemStorage<State>, State>()

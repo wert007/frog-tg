@@ -2,8 +2,13 @@ use teloxide::{Bot, prelude::Requester};
 
 use crate::{
     reports,
-    utils::{DialogueState, R},
+    state::State,
+    utils::{DialogueState, R, SentMessage},
 };
+
+pub async fn start(bot: Bot, dialoge: DialogueState, sent: SentMessage) -> R {
+    State::start(bot, dialoge, sent).await
+}
 
 pub async fn report(bot: Bot, dialogue: DialogueState) -> R {
     let text = match dialogue.get_or_default().await?.as_walk() {

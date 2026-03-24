@@ -26,6 +26,7 @@ impl QuestionaireQuestion {
                 self.question(),
                 self.options().into_iter().map(InputPollOption::new),
             )
+            .is_anonymous(false)
             .await?
             .id)
     }
@@ -86,6 +87,7 @@ impl MainQuestion {
                 self.question(),
                 self.options().into_iter().map(InputPollOption::new),
             )
+            .is_anonymous(false)
             .await?
             .id)
     }
@@ -137,7 +139,7 @@ pub fn poll_answered(
     dialoge: DialogueState,
     state: State,
     last_location: LastLocation,
-    poll: Poll,
+    poll: PollAnswer,
     mode: Mode,
     sent: SentMessage,
 ) -> impl Future<Output = R> + Send {
@@ -203,11 +205,12 @@ pub fn poll_answered(
                     dialoge,
                     poll,
                     sent,
+                    state,
                 )
                 .await
             }
             crate::state::StateState::ChangePercipation(prev) => {
-                let prev_state: StateState = prev.lock().clone();
+                let prev_state: StateState = *prev;
                 State::change_percipation(bot, prev_state, state, dialoge, poll, sent).await
             }
             _ => {

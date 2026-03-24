@@ -58,18 +58,18 @@ pub(crate) async fn found_species(
     bot: Bot,
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireFrogName),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     if poll.selected_index() < 0 {
         sent.go_back(bot, dialoge).await?;
         return Ok(());
     }
-    let species = match poll.selected() {
-        "Molch (Has Tail)" => Species::Molch,
-        "Toad (Has Wards)" => Species::Toad,
-        "Frog (No Wards)" => Species::Frog,
-        "Unsure" => bail!("TODO"),
+    let species = match poll.selected_index() {
+        0 => Species::Molch,
+        1 => Species::Toad,
+        2 => Species::Frog,
+        3 => bail!("TODO"),
         _ => unreachable!(),
     };
     questionaire.species = Some(species);
@@ -92,7 +92,7 @@ pub(crate) async fn found_frog_name(
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
     last_location: LastLocation,
     (walk, questionaire): (CompleteWalk, QuestionaireFrogName),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     let name = match (
@@ -153,7 +153,7 @@ pub(crate) async fn found_sex(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireSex),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();

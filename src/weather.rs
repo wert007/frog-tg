@@ -2,7 +2,7 @@ use anyhow::{Context, bail};
 use teloxide::{
     payloads::{SendMessage, SendMessageSetters},
     requests::JsonRequest,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
 };
 
 pub trait BotWeatherExt: teloxide::prelude::Requester {
