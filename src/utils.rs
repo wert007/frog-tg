@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     sync::{Arc, atomic::AtomicBool},
 };
 
@@ -156,6 +156,12 @@ impl Mode {
 #[derive(Debug, Clone)]
 pub struct LastLocation(Arc<Mutex<TimedLocation>>);
 
+impl Default for LastLocation {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(TimedLocation::error())))
+    }
+}
+
 struct LastLocationUpdater;
 
 impl Injectable<R, (Location, LastLocation)> for LastLocationUpdater {
@@ -172,7 +178,10 @@ impl Injectable<R, (Location, LastLocation)> for LastLocationUpdater {
     }
 
     fn input_types() -> std::collections::BTreeSet<dptree::Type> {
-        todo!()
+        BTreeSet::from_iter(vec![
+            dptree::Type::of::<Location>(),
+            dptree::Type::of::<LastLocation>(),
+        ])
     }
 }
 

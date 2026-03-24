@@ -5,10 +5,10 @@ use teloxide::{prelude::*, types::ReactionType};
 
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Note {
-    text: String,
-    location: usize,
-    source: MessageClassification,
-    time: DateTime<Local>,
+    pub text: String,
+    pub location: usize,
+    pub source: MessageClassification,
+    pub time: DateTime<Local>,
     gps_location: Option<TimedLocation>,
 }
 
@@ -43,7 +43,7 @@ pub async fn add_note(
     location: LastLocation,
     sent: SentMessage,
 ) -> R {
-    let mut s = dialoge.get().await?.ok_or(anyhow!(
+    let s = dialoge.get().await?.ok_or(anyhow!(
         "This can only be executed if a walk has been started???"
     ))?;
     let classification = message

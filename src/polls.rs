@@ -5,6 +5,12 @@ use teloxide::{
     types::{InputPollOption, MessageId},
 };
 
+use crate::{
+    questionaire,
+    state::{State, StateState},
+    utils::*,
+};
+
 pub enum QuestionaireQuestion {
     IsItAFrogToadOrMolch,
     ItIsAMolch,
@@ -122,6 +128,96 @@ impl MainQuestion {
                 .filter(|l| !l.is_empty())
                 .collect(),
             MainQuestion::AskForSex(_) => ["Male", "Female", "Unknown", "Use Questionaire"].into(),
+        }
+    }
+}
+
+pub fn poll_answered(
+    bot: Bot,
+    dialoge: DialogueState,
+    state: State,
+    last_location: LastLocation,
+    poll: Poll,
+    mode: Mode,
+    sent: SentMessage,
+) -> impl Future<Output = R> + Send {
+    async move {
+        let statestate = state.get_state();
+        match statestate {
+            crate::state::StateState::WaitForModeChange | crate::state::StateState::WalkStarted => {
+                let walk = state.as_walk().unwrap();
+                State::poll_answer_walk_started(bot, last_location, walk, dialoge, poll, mode, sent)
+                    .await
+            }
+            crate::state::StateState::QuestionaireFrogName(questionaire_frog_name) => {
+                let walk = state.as_walk().unwrap();
+
+                if questionaire_frog_name.species.is_none() {
+                    questionaire::found_species(
+                        bot,
+                        dialoge,
+                        (walk, questionaire_frog_name),
+                        poll,
+                        sent,
+                    )
+                    .await
+                } else {
+                    questionaire::found_frog_name(
+                        bot,
+                        dialoge,
+                        last_location,
+                        (walk, questionaire_frog_name),
+                        poll,
+                        sent,
+                    )
+                    .await
+                }
+            }
+            crate::state::StateState::QuestionaireSex(questionaire_sex) => {
+                questionaire::found_sex(
+                    bot,
+                    dialoge,
+                    (state.as_walk().unwrap(), questionaire_sex),
+                    poll,
+                    sent,
+                )
+                .await
+            }
+            crate::state::StateState::DeadFrog => {
+                State::dead_frog_answered(bot, state.as_walk().unwrap(), dialoge, poll, sent).await
+            }
+            crate::state::StateState::DeadFrogName(name) => {
+                State::dead_frog_location_answered(
+                    bot,
+                    (state.as_walk().unwrap(), name),
+                    dialoge,
+                    poll,
+                    sent,
+                )
+                .await
+            }
+            crate::state::StateState::FrogIdentified(partial_frog) => {
+                State::frog_identified(
+                    bot,
+                    (partial_frog, state.as_walk().unwrap()),
+                    dialoge,
+                    poll,
+                    sent,
+                )
+                .await
+            }
+            crate::state::StateState::ChangePercipation(prev) => {
+                let prev_state: StateState = prev.lock().clone();
+                State::change_percipation(bot, prev_state, state, dialoge, poll, sent).await
+            }
+            _ => {
+                bot.send_message(
+                    dialoge.chat_id(),
+                    "Seems like you just changed a poll answer. Sadly I cannot react to that anymore.",
+                )
+                .await?;
+                Ok(())
+            }
         }
     }
 }

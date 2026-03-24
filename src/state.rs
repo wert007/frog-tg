@@ -1,110 +1,233 @@
+use std::sync::Arc;
+
 use crate::{
     CompleteWalk, DeadFrog, PartialFrog, Sex,
     end_walk::maybe_end_walk,
+    notes,
     polls::{MainQuestion, QuestionaireQuestion},
-    questionaire::{self, QuestionaireFrogName},
-    utils::{DialogueState, LastLocation, Mode, PollExt, SentMessage},
-    weather::{self, BotWeatherExt},
+    questionaire::{self, QuestionaireFrogName, QuestionaireSex},
+    utils::*,
+    weather::{self, BotWeatherExt, WeatherStats},
 };
 use anyhow::{Context, anyhow, bail};
 use chrono::Local;
+use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId},
 };
 
 #[derive(Debug, Default, Clone)]
-pub enum State {
-    #[default]
-    Start,
-    WalkStarted {
-        walk: CompleteWalk,
-    },
-    WaitForModeChange {
-        walk: CompleteWalk,
-    },
-    QuestionaireFrogName {
-        walk: CompleteWalk,
-        questionaire: questionaire::QuestionaireFrogName,
-    },
-    QuestionaireSex {
-        walk: CompleteWalk,
-        questionaire: questionaire::QuestionaireSex,
-    },
-    DeadFrog {
-        walk: CompleteWalk,
-    },
-    DeadFrogName {
-        walk: CompleteWalk,
-        name: Option<String>,
-    },
-    FrogIdentified {
-        frog: PartialFrog,
-        walk: CompleteWalk,
-    },
-    EnterTemperature {
-        is_start: bool,
-        prev_state: Box<State>,
-    },
-    ChangePercipation {
-        prev_state: Box<State>,
-    },
+pub struct State {
+    walk: Option<Arc<Mutex<CompleteWalk>>>,
+    state: Arc<Mutex<StateState>>,
 }
 
+#[derive(Debug, Default, Clone)]
+pub enum StateState {
+    #[default]
+    Start,
+    WalkStarted,
+    WaitForModeChange,
+    QuestionaireFrogName(questionaire::QuestionaireFrogName),
+    QuestionaireSex(questionaire::QuestionaireSex),
+    DeadFrog,
+    DeadFrogName(Option<String>),
+    FrogIdentified(PartialFrog),
+    Temperature {
+        is_start: bool,
+        prev: Box<Arc<Mutex<StateState>>>,
+    },
+    ChangePercipation(Box<Arc<Mutex<StateState>>>),
+}
+
+const fn is_send_and_sync<T: Send + Sync>() {}
+
+const _: () = const {
+    is_send_and_sync::<StateState>();
+    is_send_and_sync::<State>();
+};
+
+impl StateState {
+    fn go_back(&self) -> Arc<Mutex<StateState>> {
+        Arc::new(Mutex::new(match self {
+            Self::WalkStarted | Self::Start => self.clone(),
+            Self::DeadFrog | Self::WaitForModeChange => Self::WalkStarted,
+            Self::QuestionaireFrogName(questionaire) => {
+                if let Some(questionaire) = questionaire.go_back() {
+                    Self::QuestionaireFrogName(questionaire)
+                } else {
+                    Self::WalkStarted
+                }
+            }
+            Self::QuestionaireSex(questionaire) => {
+                if let Some(questionaire) = questionaire.go_back() {
+                    Self::QuestionaireSex(questionaire)
+                } else {
+                    Self::FrogIdentified(questionaire.frog.clone())
+                }
+            }
+            Self::DeadFrogName(name) => {
+                if name.is_some() {
+                    Self::DeadFrogName(None)
+                } else {
+                    Self::WalkStarted
+                }
+            }
+            Self::FrogIdentified(frog) => {
+                if let Some(frog) = frog.go_back() {
+                    Self::FrogIdentified(frog)
+                } else {
+                    // TODO: Check that using questionaire does not break
+                    // anything here!
+                    // Or better put, we need to remove previously added frogs
+                    // at some point, don't we?
+                    Self::WalkStarted
+                }
+            }
+            Self::ChangePercipation(prev) | Self::Temperature { prev, .. } => return *prev.clone(),
+        }))
+    }
+}
+
+// #[derive(Debug, Default, Clone)]
+// pub enum State {
+//     #[default]
+//     Start,
+//     WalkStarted {
+//         walk: CompleteWalk,
+//     },
+//     WaitForModeChange {
+//         walk: CompleteWalk,
+//     },
+//     QuestionaireFrogName {
+//         walk: CompleteWalk,
+//         questionaire: questionaire::QuestionaireFrogName,
+//     },
+//     QuestionaireSex {
+//         walk: CompleteWalk,
+//         questionaire: questionaire::QuestionaireSex,
+//     },
+//     DeadFrog {
+//         walk: CompleteWalk,
+//     },
+//     DeadFrogName {
+//         walk: CompleteWalk,
+//         name: Option<String>,
+//     },
+//     FrogIdentified {
+//         frog: PartialFrog,
+//         walk: CompleteWalk,
+//     },
+//     EnterTemperature {
+//         is_start: bool,
+//         prev_state: Box<State>,
+//     },
+//     ChangePercipation {
+//         prev_state: Box<State>,
+//     },
+// }
+
 impl State {
-    pub fn as_walk(&self) -> Option<CompleteWalk> {
-        match self {
-            State::Start => None,
-            State::WalkStarted { walk } | State::WaitForModeChange { walk } => Some(walk.clone()),
-            State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
-            State::QuestionaireSex { walk, .. } => Some(walk.clone()),
-            State::DeadFrog { walk } => Some(walk.clone()),
-            State::DeadFrogName { walk, .. } => Some(walk.clone()),
-            State::FrogIdentified { walk, .. } => Some(walk.clone()),
-            State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
-        }
-    }
-
-    pub fn as_walk_mut(&mut self) -> Option<&mut CompleteWalk> {
-        match self {
-            State::Start => None,
-            State::WalkStarted { walk } | State::WaitForModeChange { walk } => Some(walk),
-            State::QuestionaireFrogName { walk, .. } => Some(walk),
-            State::QuestionaireSex { walk, .. } => Some(walk),
-            State::DeadFrog { walk } => Some(walk),
-            State::DeadFrogName { walk, .. } => Some(walk),
-            State::FrogIdentified { walk, .. } => Some(walk),
-            State::ChangePercipation { prev_state }
-            | State::EnterTemperature { prev_state, .. } => prev_state.as_walk_mut(),
-        }
-    }
-
-    pub async fn enter_temperature(
+    pub fn text_message(
+        s: State,
+        message: Message,
         bot: Bot,
         dialoge: DialogueState,
-        (is_start, prev_state): (bool, Box<State>),
-        message: Message,
+        location: LastLocation,
         sent: SentMessage,
-    ) -> anyhow::Result<()> {
-        let temp = message
-            .text()
-            .ok_or(anyhow!("There should be a text message???"))?;
-        let temp: f64 = temp.parse()?;
-        let mut state = *prev_state;
-        let weather = &mut state
-            .as_walk_mut()
-            .expect("Should be set at this point?")
-            .weather;
-        if is_start {
-            weather.temperature_start = temp;
-        } else {
-            weather.temperature_end = Some(temp);
+    ) -> impl Future<Output = R> + Send {
+        async move {
+            let text = message.text().unwrap_or_default().to_string();
+            let state: StateState = s.state.lock().clone();
+            match state {
+                StateState::Start if text.to_lowercase().trim() == "/start" => {
+                    State::start(bot, dialoge, sent).await
+                    // Ok(())
+                }
+                StateState::Temperature { is_start, prev } => {
+                    let temp = message
+                        .text()
+                        .ok_or(anyhow!("There should be a text message???"))?;
+                    let temp: f64 = temp.parse()?;
+                    if is_start {
+                        s.weather_mut().temperature_start = temp;
+                    } else {
+                        s.weather_mut().temperature_end = Some(temp);
+                    }
+                    let m = bot
+                        .send_weather_stats(dialoge.chat_id(), s.as_walk().unwrap().weather)
+                        .await?;
+                    sent.add_weather(m.id);
+                    let statestate = prev.lock().clone();
+                    s.change_to(statestate);
+                    Ok(())
+                }
+                // _ => Ok(()),
+                _ => notes::add_note(bot, dialoge, message, text, location, sent).await,
+            }
         }
-        let m = bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
-        sent.add_weather(m.id);
-        dialoge.update(state).await?;
-        Ok(())
     }
+    pub fn is_start(&self) -> bool {
+        matches!(*self.state.lock(), StateState::Start)
+    }
+    // pub fn as_walk(&self) -> Option<CompleteWalk> {
+    //     match self {
+    //         State::Start => None,
+    //         State::WalkStarted | State::WaitForModeChange { walk } => Some(walk.clone()),
+    //         State::QuestionaireFrogName { walk, .. } => Some(walk.clone()),
+    //         State::QuestionaireSex { walk, .. } => Some(walk.clone()),
+    //         State::DeadFrog { walk } => Some(walk.clone()),
+    //         State::DeadFrogName { walk, .. } => Some(walk.clone()),
+    //         State::FrogIdentified { walk, .. } => Some(walk.clone()),
+    //         State::ChangePercipation { .. } | State::EnterTemperature { .. } => todo!(),
+    //     }
+    // }
+
+    // pub fn as_walk_mut(&mut self) -> Option<&mut CompleteWalk> {
+    //     match self {
+    //         State::Start => None,
+    //         State::WalkStarted { walk } | State::WaitForModeChange { walk } => Some(walk),
+    //         State::QuestionaireFrogName { walk, .. } => Some(walk),
+    //         State::QuestionaireSex { walk, .. } => Some(walk),
+    //         State::DeadFrog { walk } => Some(walk),
+    //         State::DeadFrogName { walk, .. } => Some(walk),
+    //         State::FrogIdentified { walk, .. } => Some(walk),
+    //         State::ChangePercipation { prev_state }
+    //         | State::EnterTemperature { prev_state, .. } => prev_state.as_walk_mut(),
+    //     }
+    // }
+
+    // pub fn enter_temperature(
+    //     bot: Bot,
+    //     dialoge: DialogueState,
+    //     (is_start, prev_state, mut weather): (
+    //         bool,
+    //         Box<Arc<Mutex<StateState>>>,
+    //         MappedMutexGuard<'_, WeatherStats>,
+    //     ),
+    //     message: Message,
+    //     sent: SentMessage,
+    // ) -> impl Future<Output = anyhow::Result<()>> + Send + Sync {
+    //     async move {
+    //         let temp = message
+    //             .text()
+    //             .ok_or(anyhow!("There should be a text message???"))?;
+    //         let temp: f64 = temp.parse()?;
+    //         if is_start {
+    //             weather.temperature_start = temp;
+    //         } else {
+    //             weather.temperature_end = Some(temp);
+    //         }
+    //         let m = bot.send_weather_stats(dialoge.chat_id(), *weather).await?;
+    //         sent.add_weather(m.id);
+    //         dialoge
+    //             .get_or_default()
+    //             .await?
+    //             .change_to(prev_state.lock().clone());
+    //         Ok(())
+    //     }
+    // }
 
     pub async fn start(bot: Bot, dialoge: DialogueState, sent: SentMessage) -> anyhow::Result<()> {
         sent.clear();
@@ -114,39 +237,46 @@ impl State {
         bot.send_weather_stats(dialoge.chat_id(), walk.weather)
             .await
             .context("Sending the weather via tg to user")?;
-        dialoge.update(State::WalkStarted { walk }).await?;
+        dialoge
+            .update(State {
+                walk: Some(Arc::new(Mutex::new(walk))),
+                ..Default::default()
+            })
+            .await?;
         Ok(())
     }
 
-    pub async fn change_percipation(
+    pub fn change_percipation(
         bot: Bot,
-        prev_state: Box<State>,
+        prev_state: StateState,
+        state: State,
         dialoge: DialogueState,
         poll: Poll,
         sent: SentMessage,
-    ) -> anyhow::Result<()> {
+    ) -> impl Future<Output = anyhow::Result<()>> + Send {
         use weather::Percipation::*;
-        let percipation = match poll.selected_index() {
-            0 => None,
-            1 => Fog,
-            2 => Drizzle,
-            3 => ModerateRain,
-            4 => StrongRain,
-            5 => Graupel,
-            6 => Snow,
-            -1 => bail!("TODO, no unselecting allowed!"),
-            _ => unreachable!(),
-        };
-        let mut state = *prev_state;
-        let weather = &mut state.as_walk_mut().expect("Should be unreachable").weather;
-        weather.percipation = percipation;
-        let w = bot
-            .send_weather_stats(dialoge.chat_id(), *weather)
-            .await?
-            .id;
-        sent.add_weather(w);
-        dialoge.update(state).await?;
-        Ok(())
+        async move {
+            let percipation = match poll.selected_index() {
+                0 => None,
+                1 => Fog,
+                2 => Drizzle,
+                3 => ModerateRain,
+                4 => StrongRain,
+                5 => Graupel,
+                6 => Snow,
+                -1 => bail!("TODO, no unselecting allowed!"),
+                _ => unreachable!(),
+            };
+            let weather = {
+                let mut weather_mutex = state.weather_mut();
+                weather_mutex.percipation = percipation;
+                weather_mutex.clone()
+            };
+            let w = bot.send_weather_stats(dialoge.chat_id(), weather).await?.id;
+            state.change_to(prev_state);
+            sent.add_weather(w);
+            Ok(())
+        }
     }
 
     pub async fn poll_answer_walk_started(
@@ -172,15 +302,13 @@ impl State {
                     .await?;
                 sent.add_frog(last_message_id, walk.frogs.len());
                 dialoge
-                    .update(State::FrogIdentified {
-                        frog: PartialFrog {
-                            name: name.into(),
-                            gps_location: last_location.as_location(),
-                            ..Default::default()
-                        },
-                        walk,
-                    })
-                    .await?;
+                    .get_or_default()
+                    .await?
+                    .change_to_frog_identified(PartialFrog {
+                        name: name.into(),
+                        gps_location: last_location.as_location(),
+                        ..Default::default()
+                    });
             }
             "Found Something" => {
                 let last_message_id = QuestionaireQuestion::IsItAFrogToadOrMolch
@@ -188,18 +316,16 @@ impl State {
                     .await?;
                 sent.add_frog(last_message_id, walk.frogs.len());
                 dialoge
-                    .update(State::QuestionaireFrogName {
-                        walk,
-                        questionaire: QuestionaireFrogName::new(),
-                    })
-                    .await?;
+                    .get_or_default()
+                    .await?
+                    .change_to_questionaire_frog_name(QuestionaireFrogName::new());
             }
             "Dead Frog :(" => {
                 let id = MainQuestion::FoundDeadFrog
                     .ask(bot, dialoge.chat_id())
                     .await?;
                 sent.add_dead_frog(id, walk.dead_frogs.len());
-                dialoge.update(State::DeadFrog { walk }).await?;
+                dialoge.get_or_default().await?.change_to_dead_frog();
             }
             _ => bail!("TODO"),
         }
@@ -225,7 +351,10 @@ impl State {
             .ask(bot, dialoge.chat_id())
             .await?;
         sent.add_dead_frog(id, walk.dead_frogs.len());
-        dialoge.update(State::DeadFrogName { walk, name }).await?;
+        dialoge
+            .get_or_default()
+            .await?
+            .change_to_dead_frog_name(name);
         Ok(())
     }
 
@@ -248,7 +377,7 @@ impl State {
             location,
             time: Local::now(),
         });
-        dialoge.update(State::WalkStarted { walk }).await?;
+        dialoge.get_or_default().await?.change_to_default();
         sent.clear_history();
         sent.add_to_history(
             MainQuestion::FoundSomething
@@ -295,13 +424,10 @@ impl State {
                     let last_message_id =
                         questionaire::start_sex(bot, dialoge.chat_id(), &frog.name).await?;
                     sent.add_frog(last_message_id, walk.frogs.len());
-
                     dialoge
-                        .update(State::QuestionaireSex {
-                            walk,
-                            questionaire: questionaire::QuestionaireSex::new(frog.clone()),
-                        })
-                        .await?;
+                        .get_or_default()
+                        .await?
+                        .change_to_questionaire_sex(frog);
                     return Ok(());
                 }
                 _ => unreachable!(),
@@ -311,7 +437,10 @@ impl State {
                 .ask(bot, dialoge.chat_id())
                 .await?;
             sent.add_frog(last_message_id, walk.frogs.len());
-            dialoge.update(State::FrogIdentified { frog, walk }).await?;
+            dialoge
+                .get_or_default()
+                .await?
+                .change_to_frog_identified(frog);
         }
         Ok(())
     }
@@ -333,7 +462,10 @@ impl State {
             .ask(bot, dialoge.chat_id())
             .await?;
         sent.add_frog(last_message_id, walk.frogs.len());
-        dialoge.update(State::FrogIdentified { frog, walk }).await?;
+        dialoge
+            .get_or_default()
+            .await?
+            .change_to_frog_identified(frog);
         Ok(())
     }
 
@@ -362,63 +494,79 @@ impl State {
         sent.add_frog(id, walk.frogs.len());
         walk.frogs.push(frog);
         walk.repeats = 1;
-        dialoge.update(State::WalkStarted { walk }).await?;
+        dialoge.get_or_default().await?.change_to_default();
         Ok(())
     }
 
     pub fn go_back(&self) -> Self {
-        match self {
-            State::WalkStarted { .. } | State::Start => self.clone(),
-            State::DeadFrog { walk } | State::WaitForModeChange { walk } => {
-                Self::WalkStarted { walk: walk.clone() }
-            }
-            State::QuestionaireFrogName { walk, questionaire } => {
-                if let Some(questionaire) = questionaire.go_back() {
-                    Self::QuestionaireFrogName {
-                        walk: walk.clone(),
-                        questionaire,
-                    }
-                } else {
-                    Self::WalkStarted { walk: walk.clone() }
-                }
-            }
-            State::QuestionaireSex { walk, questionaire } => {
-                if let Some(questionaire) = questionaire.go_back() {
-                    Self::QuestionaireSex {
-                        walk: walk.clone(),
-                        questionaire,
-                    }
-                } else {
-                    Self::FrogIdentified {
-                        frog: questionaire.frog.clone(),
-                        walk: walk.clone(),
-                    }
-                }
-            }
-            State::DeadFrogName { walk, name } => {
-                if name.is_some() {
-                    Self::DeadFrogName {
-                        walk: walk.clone(),
-                        name: None,
-                    }
-                } else {
-                    Self::WalkStarted { walk: walk.clone() }
-                }
-            }
-            State::FrogIdentified { frog, walk } => {
-                if let Some(frog) = frog.go_back() {
-                    Self::FrogIdentified {
-                        frog,
-                        walk: walk.clone(),
-                    }
-                } else {
-                    // TODO: Check that using questionaire does not break
-                    // anything here!
-                    Self::WalkStarted { walk: walk.clone() }
-                }
-            }
-            State::ChangePercipation { prev_state }
-            | State::EnterTemperature { prev_state, .. } => *prev_state.clone(),
+        Self {
+            state: self.state.lock().go_back(),
+            walk: self.walk.clone(),
         }
+    }
+
+    pub fn change_to_frog_identified(&self, frog: PartialFrog) {
+        self.change_to(StateState::FrogIdentified(frog))
+    }
+
+    fn weather_mut<'a>(&'a self) -> parking_lot::MappedMutexGuard<'a, WeatherStats> {
+        MutexGuard::map(self.walk.as_ref().expect("Should be set!").lock(), |w| {
+            &mut w.weather
+        })
+    }
+
+    pub fn change_to_questionaire_frog_name(&self, questionaire: QuestionaireFrogName) {
+        self.change_to(StateState::QuestionaireFrogName(questionaire));
+    }
+
+    fn change_to_dead_frog(&self) {
+        self.change_to(StateState::DeadFrog);
+    }
+
+    fn change_to_dead_frog_name(&self, name: Option<String>) {
+        self.change_to(StateState::DeadFrogName(name));
+    }
+
+    fn change_to_default(&self) {
+        self.change_to(StateState::WalkStarted);
+    }
+
+    fn change_to_questionaire_sex(&self, frog: PartialFrog) {
+        self.change_to(StateState::QuestionaireSex(QuestionaireSex::new(frog)));
+    }
+
+    fn change_to(&self, state: StateState) {
+        *self.state.lock() = state;
+    }
+
+    pub(crate) fn as_walk(&self) -> Option<CompleteWalk> {
+        self.walk.as_ref().map(|w| w.lock().clone())
+    }
+
+    pub(crate) fn as_walk_mut<'a>(&'a self) -> Option<MutexGuard<'a, CompleteWalk>> {
+        self.walk.as_ref().map(|w| w.lock())
+    }
+
+    pub(crate) fn change_to_enter_temperature(&self, is_start: bool) {
+        self.change_to(StateState::Temperature {
+            is_start,
+            prev: Box::new(self.state.clone()),
+        });
+    }
+
+    pub(crate) fn change_to_percipation(&self) {
+        self.change_to(StateState::ChangePercipation(Box::new(self.state.clone())));
+    }
+
+    pub(crate) fn change_to_start(&self) {
+        self.change_to(StateState::Start);
+    }
+
+    pub(crate) fn change_to_wait_for_mode_change(&self) {
+        self.change_to(StateState::WaitForModeChange);
+    }
+
+    pub(crate) fn get_state(&self) -> StateState {
+        self.state.lock().clone()
     }
 }

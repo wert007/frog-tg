@@ -81,8 +81,9 @@ pub(crate) async fn found_species(
     let id = question.ask(bot, dialoge.chat_id()).await?;
     sent.add_frog(id, walk.frogs.len());
     dialoge
-        .update(State::QuestionaireFrogName { walk, questionaire })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_questionaire_frog_name(questionaire);
     Ok(())
 }
 
@@ -123,15 +124,13 @@ pub(crate) async fn found_frog_name(
     sent.add_frog(last_message_id, walk.frogs.len());
 
     dialoge
-        .update(State::FrogIdentified {
-            frog: crate::PartialFrog {
-                name: name.into(),
-                gps_location: last_location.as_location(),
-                ..Default::default()
-            },
-            walk,
-        })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_frog_identified(crate::PartialFrog {
+            name: name.into(),
+            gps_location: last_location.as_location(),
+            ..Default::default()
+        });
     Ok(())
 }
 
@@ -178,10 +177,8 @@ pub(crate) async fn found_sex(
     let last_message_id = MainQuestion::WhereAreYou.ask(bot, chat_id).await?;
     sent.add_frog(last_message_id, walk.frogs.len());
     dialoge
-        .update(State::FrogIdentified {
-            frog: questionaire.frog,
-            walk,
-        })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_frog_identified(questionaire.frog);
     Ok(())
 }

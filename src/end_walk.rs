@@ -5,7 +5,7 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup, InputFile},
 };
 
-use crate::{CompleteWalk, reports, state::State, utils::*};
+use crate::{CompleteWalk, reports, utils::*};
 
 pub async fn maybe_end_walk(
     bot: Bot,
@@ -27,7 +27,10 @@ pub async fn maybe_end_walk(
             )
             .await?;
         sent.add_to_history(m.id);
-        dialoge.update(State::WaitForModeChange { walk }).await?;
+        dialoge
+            .get_or_default()
+            .await?
+            .change_to_wait_for_mode_change();
         Ok(())
     } else {
         end_walk(bot, walk, dialoge, mode).await
@@ -74,7 +77,7 @@ pub async fn end_walk(
 
     send_pdf_report_to_bot(bot, dialoge.chat_id(), &path, &walk).await?;
 
-    dialoge.update(State::Start).await?;
+    dialoge.get_or_default().await?.change_to_start();
     Ok(())
 }
 

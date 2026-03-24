@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Local};
-use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
+use teloxide::{dispatching::dialogue::InMemStorage, dptree::entry, prelude::*};
 
 use crate::{
     notes::Note,
@@ -166,54 +166,8 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .branch(if_is_command("report", commands::report))
-        .branch(
-            dptree::case![State::Start]
-                .filter(|m: Message| m.text().is_some_and(|t| t.trim() == "/start"))
-                .endpoint(State::start),
-        )
-        .branch(
-            dptree::case![State::EnterTemperature {
-                is_start,
-                prev_state
-            }]
-            .endpoint(State::enter_temperature),
-        )
-        .filter_map(|m: Message| m.text().map(ToString::to_string))
-        .endpoint(notes::add_note);
-    let poll_answered_handler = Update::filter_poll()
-        .branch(
-            dptree::case![State::ChangePercipation { prev_state }]
-                .endpoint(State::change_percipation),
-        )
-        .branch(
-            dptree::case![State::WalkStarted { walk }].endpoint(State::poll_answer_walk_started),
-        )
-        .branch(
-            dptree::case![State::WaitForModeChange { walk }]
-                .endpoint(State::poll_answer_walk_started),
-        )
-        .branch(dptree::case![State::DeadFrog { walk }].endpoint(State::dead_frog_answered))
-        .branch(
-            dptree::case![State::DeadFrogName { walk, name }]
-                .endpoint(State::dead_frog_location_answered),
-        )
-        .branch(
-            dptree::case![State::QuestionaireFrogName { walk, questionaire }]
-                .filter(|(_, q): (CompleteWalk, QuestionaireFrogName)| q.species.is_none())
-                .endpoint(questionaire::found_species),
-        )
-        .branch(
-            dptree::case![State::QuestionaireFrogName { walk, questionaire }]
-                .filter(|(_, q): (CompleteWalk, QuestionaireFrogName)| q.species.is_some())
-                .endpoint(questionaire::found_frog_name),
-        )
-        .branch(
-            dptree::case![State::QuestionaireSex { walk, questionaire }]
-                .endpoint(questionaire::found_sex),
-        )
-        .branch(
-            dptree::case![State::FrogIdentified { frog, walk }].endpoint(State::frog_identified),
-        );
+        .endpoint(State::text_message);
+    let poll_answered_handler = Update::filter_poll().endpoint(polls::poll_answered);
     let schema = dptree::entry()
         .map(UpdateWithSuppliedChatId::ensure_id)
         .enter_dialogue::<UpdateWithSuppliedChatId, InMemStorage<State>, State>()
@@ -233,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
             InMemStorage::<State>::new(),
             Arc::new(Mutex::<ChatId>::new(ChatId(0))),
             Mode::create_debug(),
-            Arc::new(Mutex::new(TimedLocation::error())),
+            LastLocation::default(),
             SentMessage::default()
         ])
         .build()
