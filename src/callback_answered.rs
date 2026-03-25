@@ -129,13 +129,11 @@ pub async fn inline_keyboard_weather_pressed(
                 bot.answer_callback_query(cb_id).await?;
                 return Ok(());
             }
-            // None => todo!(),
             _ => bail!("TODO"),
         }
         walk.weather.clone()
     };
 
-    // let message_id = cb.message.unwrap().id();
     bot.answer_callback_query(cb_id).await?;
 
     if before != weather {
@@ -165,8 +163,6 @@ async fn inline_keyboard_found_pressed(
             frog.time = Local::now();
             frog.gps_location = last_location.as_location();
             state.as_walk_mut().unwrap().frogs.push(frog);
-            // let message_id = cb.message.unwrap().id();
-
             state.as_walk_mut().unwrap().repeats += 1;
             let walk = state.as_walk().unwrap();
             bot.edit_message_text(
@@ -199,11 +195,10 @@ async fn inline_keyboard_found_pressed(
         }
         _ => unreachable!(),
     }
-
     Ok(())
 }
 
-pub fn inline_keyboard_button_pressed(
+pub async fn inline_keyboard_button_pressed(
     bot: Bot,
     state: State,
     dialoge: DialogueState,
@@ -211,41 +206,37 @@ pub fn inline_keyboard_button_pressed(
     last_location: LastLocation,
     mode: Mode,
     sent: SentMessage,
-) -> impl Future<Output = anyhow::Result<()>> + Send {
-    async move {
-        let message_id = cb.regular_message().unwrap().id;
-        let Some(id) = cb.data.as_ref() else {
-            return Ok(());
-        };
-        let mut parts = id.split(':');
-        let area = parts.next().unwrap();
-        let argument = parts.next().unwrap();
-        match area {
-            "end" => {
-                inline_keyboard_end_pressed(bot, argument, cb.id, state.as_walk().unwrap(), dialoge)
-                    .await
-            }
-            "found" => {
-                inline_keyboard_found_pressed(
-                    bot,
-                    argument,
-                    cb.id,
-                    state,
-                    dialoge,
-                    sent,
-                    last_location,
-                    message_id,
-                    mode,
-                )
+) -> anyhow::Result<()> {
+    let message_id = cb.regular_message().unwrap().id;
+    let Some(id) = cb.data.as_ref() else {
+        return Ok(());
+    };
+    let mut parts = id.split(':');
+    let area = parts.next().unwrap();
+    let argument = parts.next().unwrap();
+    match area {
+        "end" => {
+            inline_keyboard_end_pressed(bot, argument, cb.id, state.as_walk().unwrap(), dialoge)
                 .await
-            }
-            "weather" => {
-                inline_keyboard_weather_pressed(
-                    bot, argument, cb.id, state, message_id, dialoge, sent,
-                )
-                .await
-            }
-            _ => unreachable!(),
         }
+        "found" => {
+            inline_keyboard_found_pressed(
+                bot,
+                argument,
+                cb.id,
+                state,
+                dialoge,
+                sent,
+                last_location,
+                message_id,
+                mode,
+            )
+            .await
+        }
+        "weather" => {
+            inline_keyboard_weather_pressed(bot, argument, cb.id, state, message_id, dialoge, sent)
+                .await
+        }
+        _ => unreachable!(),
     }
 }

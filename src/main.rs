@@ -8,7 +8,7 @@ use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 use crate::{
     notes::Note,
     polls::MainQuestion,
-    state::State,
+    state::{State, StateState},
     utils::{
         DialogueState, LastLocation, MessageClassification, Mode, SentMessage, TimedLocation,
         UpdateWithSuppliedChatId, if_is_command,
@@ -156,13 +156,28 @@ async fn main() -> anyhow::Result<()> {
             })
             .endpoint(
                 async |bot, dialoge: DialogueState, sent: SentMessage, s: State| {
-                    // TODO: Check that s.as_walk().is_some()!
-                    sent.clear_history();
-                    sent.add_to_history(
-                        MainQuestion::FoundSomething
-                            .ask(bot, dialoge.chat_id())
-                            .await?,
-                    );
+                    if s.as_walk().is_some() {
+                        if matches!(s.get_state(), StateState::WalkStarted) {
+                            sent.clear_history();
+                            sent.add_to_history(
+                                MainQuestion::FoundSomething
+                                    .ask(bot, dialoge.chat_id())
+                                    .await?,
+                            );
+                        } else {
+                            bot.send_message(
+                                dialoge.chat_id(),
+                                "Finish what you are doing right now, otherwise data may be lost.",
+                            )
+                            .await?;
+                        }
+                    } else {
+                        bot.send_message(
+                            dialoge.chat_id(),
+                            "Use /start first to start a new walk.",
+                        )
+                        .await?;
+                    }
                     Ok(())
                 },
             ),
