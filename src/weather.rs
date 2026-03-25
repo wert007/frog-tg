@@ -1,33 +1,29 @@
 use anyhow::{Context, bail};
 use teloxide::{
     payloads::{SendMessage, SendMessageSetters},
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message},
+    requests::JsonRequest,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
 };
 
 pub trait BotWeatherExt: teloxide::prelude::Requester {
-    async fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
+    fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
         &self,
         chat_id: C,
         weather: WeatherStats,
-    ) -> Result<Message, Self::Err>;
+    ) -> JsonRequest<SendMessage>;
 }
 
 impl BotWeatherExt for teloxide::Bot {
-    async fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
+    fn send_weather_stats<C: Into<teloxide::types::Recipient>>(
         &self,
         chat_id: C,
         weather: WeatherStats,
-    ) -> Result<Message, Self::Err> {
+    ) -> JsonRequest<SendMessage> {
         let m = SendMessage::new(chat_id, weather.as_message());
 
         let k = WeatherStats::default_weather_keyboard_markup();
         let m = m.reply_markup(k);
-        let a = <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m)
-            .await?;
-
-        // InlineKeyboardButton::new("hello", teloxide::types::InlineKeyboardButtonKind::CallbackData("huh".into()));
-        // teloxide::prelude::Requester::send_message(&self, chat_id, text).await?;
-        Ok(a)
+        <teloxide::Bot as teloxide::prelude::Requester>::SendMessage::new(self.clone(), m)
     }
 }
 

@@ -2,8 +2,9 @@ use anyhow::bail;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, types::MessageId};
 
 use crate::{
-    CompleteWalk, LastLocation, PartialFrog, PollExt, SentMessage, Sex, State, if_is_relevant,
+    CompleteWalk, LastLocation, PartialFrog, SentMessage, Sex, State,
     polls::{MainQuestion, QuestionaireQuestion},
+    utils::PollExt,
 };
 
 mod sex;
@@ -57,18 +58,18 @@ pub(crate) async fn found_species(
     bot: Bot,
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireFrogName),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     if poll.selected_index() < 0 {
         sent.go_back(bot, dialoge).await?;
         return Ok(());
     }
-    let species = match poll.selected() {
-        "Molch (Has Tail)" => Species::Molch,
-        "Toad (Has Wards)" => Species::Toad,
-        "Frog (No Wards)" => Species::Frog,
-        "Unsure" => bail!("TODO"),
+    let species = match poll.selected_index() {
+        0 => Species::Molch,
+        1 => Species::Toad,
+        2 => Species::Frog,
+        3 => bail!("TODO"),
         _ => unreachable!(),
     };
     questionaire.species = Some(species);
@@ -80,8 +81,9 @@ pub(crate) async fn found_species(
     let id = question.ask(bot, dialoge.chat_id()).await?;
     sent.add_frog(id, walk.frogs.len());
     dialoge
-        .update(State::QuestionaireFrogName { walk, questionaire })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_questionaire_frog_name(questionaire);
     Ok(())
 }
 
@@ -90,7 +92,7 @@ pub(crate) async fn found_frog_name(
     dialoge: Dialogue<crate::State, InMemStorage<crate::State>>,
     last_location: LastLocation,
     (walk, questionaire): (CompleteWalk, QuestionaireFrogName),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     let name = match (
@@ -122,15 +124,13 @@ pub(crate) async fn found_frog_name(
     sent.add_frog(last_message_id, walk.frogs.len());
 
     dialoge
-        .update(State::FrogIdentified {
-            frog: crate::PartialFrog {
-                name: name.into(),
-                gps_location: if_is_relevant(last_location),
-                ..Default::default()
-            },
-            walk,
-        })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_frog_identified(crate::PartialFrog {
+            name: name.into(),
+            gps_location: last_location.as_location(),
+            ..Default::default()
+        });
     Ok(())
 }
 
@@ -153,7 +153,7 @@ pub(crate) async fn found_sex(
     bot: Bot,
     dialoge: Dialogue<State, InMemStorage<State>>,
     (walk, mut questionaire): (CompleteWalk, QuestionaireSex),
-    poll: Poll,
+    poll: PollAnswer,
     sent: SentMessage,
 ) -> anyhow::Result<()> {
     let chat_id = dialoge.chat_id();
@@ -177,10 +177,8 @@ pub(crate) async fn found_sex(
     let last_message_id = MainQuestion::WhereAreYou.ask(bot, chat_id).await?;
     sent.add_frog(last_message_id, walk.frogs.len());
     dialoge
-        .update(State::FrogIdentified {
-            frog: questionaire.frog,
-            walk,
-        })
-        .await?;
+        .get_or_default()
+        .await?
+        .change_to_frog_identified(questionaire.frog);
     Ok(())
 }
